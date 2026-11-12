@@ -6,8 +6,6 @@
 
 Google ADK 2.x의 Workflow(그래프 기반 오케스트레이션)와 Gemini, Google 검색 그라운딩으로 만들었습니다.
 
-> 이 저장소는 [Kaggle × Google 5-Day AI Agents Intensive (2025)](legacy/) 캡스톤 프로젝트였던 *Travel Concierge Multi-Agent System*을 실서비스 형태로 다시 설계한 버전입니다. 원본 코드는 [`legacy/`](legacy/)에 남겨 두었습니다.
-
 ---
 
 ## 주요 기능

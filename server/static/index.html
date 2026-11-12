@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>랜덤 여행 챌린지</title>
+  <meta name="description" content="기간만 고르면 국내 여행지를 랜덤으로 뽑아 일정과 예산까지 짜드려요.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Gowun+Dodum&family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <main class="wrap">
+    <header class="masthead">
+      <p class="eyebrow">RANDOM TRIP CHALLENGE</p>
+      <h1>어디로 갈지는<br><span class="hl">룰렛</span>이 정합니다</h1>
+      <p class="lede">기간만 고르세요. 국내 여행지 한 곳을 무작위로 뽑아 일정과 예산까지 짜드려요.</p>
+    </header>
+
+    <section class="panel" id="setup">
+      <h2 class="label">여행 기간</h2>
+      <div class="chips" id="durations" role="radiogroup" aria-label="여행 기간"></div>
+
+      <details class="options">
+        <summary>옵션 더보기 <span class="muted" id="optSummary"></span></summary>
+        <div class="grid">
+          <label>출발지
+            <select id="departure"></select>
+          </label>
+          <label>인원
+            <input id="travelers" type="number" min="1" max="10" value="2" inputmode="numeric">
+          </label>
+          <label>예산 스타일
+            <select id="budget"></select>
+          </label>
+          <label>출발일 <small class="muted">(2주 이내면 날씨 반영)</small>
+            <input id="startDate" type="date">
+          </label>
+        </div>
+      </details>
+
+      <button class="spin" id="spinBtn" type="button">
+        <span class="dice" aria-hidden="true">🎲</span> 룰렛 돌리기
+      </button>
+    </section>
+
+    <section class="panel stage hidden" id="stage" aria-live="polite">
+      <div class="roulette" id="roulette">
+        <div class="slot" id="slot">?</div>
+        <p class="slot-sub" id="slotSub">여행지를 추첨하고 있어요…</p>
+      </div>
+      <ol class="steps" id="steps"></ol>
+      <p class="error hidden" id="error"></p>
+    </section>
+
+    <section class="result hidden" id="result"></section>
+
+    <footer class="foot">
+      Google ADK Workflow · Gemini · Google Search · Open-Meteo<br>
+      AI가 만든 일정이에요. 영업시간·요금은 방문 전에 꼭 확인하세요.
+    </footer>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>

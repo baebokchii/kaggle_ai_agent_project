@@ -1,0 +1,10 @@
+.venv
+.git
+.env
+data
+tests
+legacy
+**/__pycache__
+.pytest_cache
+.claude
+Certificate.png

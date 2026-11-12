@@ -1,0 +1,58 @@
+{
+  "criteria": {
+    "plan_structure_score": 1.0,
+    "rubric_based_final_response_quality_v1": {
+      "threshold": 0.8,
+      "judge_model_options": {
+        "judge_model": "gemini-3.5-flash",
+        "num_samples": 3
+      },
+      "rubrics": [
+        {
+          "rubric_id": "feasible_pace",
+          "rubric_content": {
+            "text_property": "하루 일정이 이동 시간을 고려했을 때 현실적으로 소화 가능하다 (하루 주요 방문지 3~5곳 수준)."
+          }
+        },
+        {
+          "rubric_id": "efficient_route",
+          "rubric_content": {
+            "text_property": "같은 날의 장소들이 지리적으로 가깝게 묶여 있어 동선이 오락가락하지 않는다."
+          }
+        },
+        {
+          "rubric_id": "arrival_departure",
+          "rubric_content": {
+            "text_property": "첫날은 출발지에서의 이동·도착 시간을, 마지막 날은 귀가 이동을 반영한다."
+          }
+        },
+        {
+          "rubric_id": "specific_places",
+          "rubric_content": {
+            "text_property": "막연한 표현('현지 맛집') 대신 구체적인 장소·가게 이름을 제시한다."
+          }
+        },
+        {
+          "rubric_id": "budget_plausible",
+          "rubric_content": {
+            "text_property": "예산 항목(교통·숙박·식비 등)이 빠짐없고 금액이 국내 여행 물가에 비추어 그럴듯하다."
+          }
+        },
+        {
+          "rubric_id": "natural_korean",
+          "rubric_content": {
+            "text_property": "자연스러운 한국어로 작성되어 있다."
+          }
+        }
+      ]
+    }
+  },
+  "custom_metrics": {
+    "plan_structure_score": {
+      "code_config": {
+        "name": "travel_roulette.evals.metrics.plan_structure_score"
+      },
+      "description": "요청 조건(일차 수·출발지·인원·식사·예산 합계·한국어) 반영 여부를 코드로 채점"
+    }
+  }
+}

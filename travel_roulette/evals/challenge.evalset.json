@@ -1,0 +1,122 @@
+{
+  "eval_set_id": "travel_roulette_smoke",
+  "name": "랜덤 여행 챌린지 기본 시나리오",
+  "description": "기간·출발지·인원·예산 조합별로 일정과 예산이 조건대로 나오는지 확인 (시드 고정: 버전 간 같은 여행지로 비교)",
+  "eval_cases": [
+    {
+      "eval_id": "day_trip_seoul",
+      "conversation": [
+        {
+          "invocation_id": "day_trip_seoul-1",
+          "user_content": {
+            "role": "user",
+            "parts": [
+              {
+                "text": "당일치기로 아무 데나 보내줘"
+              }
+            ]
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "travel_roulette",
+        "user_id": "eval_user",
+        "state": {
+          "seed": 1
+        }
+      }
+    },
+    {
+      "eval_id": "busan_solo_budget",
+      "conversation": [
+        {
+          "invocation_id": "busan_solo_budget-1",
+          "user_content": {
+            "role": "user",
+            "parts": [
+              {
+                "text": "1박 2일 부산에서 혼자 알뜰하게"
+              }
+            ]
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "travel_roulette",
+        "user_id": "eval_user",
+        "state": {
+          "seed": 2
+        }
+      }
+    },
+    {
+      "eval_id": "daegu_family_luxury",
+      "conversation": [
+        {
+          "invocation_id": "daegu_family_luxury-1",
+          "user_content": {
+            "role": "user",
+            "parts": [
+              {
+                "text": "2박 3일 대구에서 4명 여유롭게"
+              }
+            ]
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "travel_roulette",
+        "user_id": "eval_user",
+        "state": {
+          "seed": 3
+        }
+      }
+    },
+    {
+      "eval_id": "gwangju_long_trip",
+      "conversation": [
+        {
+          "invocation_id": "gwangju_long_trip-1",
+          "user_content": {
+            "role": "user",
+            "parts": [
+              {
+                "text": "3박 4일 광주 출발 2명"
+              }
+            ]
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "travel_roulette",
+        "user_id": "eval_user",
+        "state": {
+          "seed": 4
+        }
+      }
+    },
+    {
+      "eval_id": "korean_numerals_couple",
+      "conversation": [
+        {
+          "invocation_id": "korean_numerals_couple-1",
+          "user_content": {
+            "role": "user",
+            "parts": [
+              {
+                "text": "이박삼일 커플 여행"
+              }
+            ]
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "travel_roulette",
+        "user_id": "eval_user",
+        "state": {
+          "seed": 5
+        }
+      }
+    }
+  ]
+}

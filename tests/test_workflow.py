@@ -29,7 +29,7 @@ async def test_full_pipeline_with_review_loop(fake_llm):
   fake_llm.days = 3
   runner = InMemoryRunner(app=travel_agent.app)
   await runner.session_service.create_session(
-      app_name=APP_NAME, user_id="u", session_id="s1", state={"temp:seed": 7}
+      app_name=APP_NAME, user_id="u", session_id="s1", state={"seed": 7}
   )
   events, session = await _run(runner, "s1", "2박 3일 부산에서 둘이 알뜰하게")
   st = session.state
@@ -46,8 +46,8 @@ async def test_full_pipeline_with_review_loop(fake_llm):
   assert {s["uri"] for s in st["sources"]} == {
       "https://example.com/spots", "https://example.com/food", "https://example.com/logistics"}
 
-  # 검수 루프: critic 1회 반려 → reviser → critic 승인
-  assert fake_llm.calls.count("critic") == 2
+  # 검수 루프: critic 1회 반려 → reviser → (수정 기회 소진이라 재검수 생략) → 예산
+  assert fake_llm.calls.count("critic") == 1
   assert fake_llm.calls.count("reviser") == 1
   assert st["revision_count"] == 1
 
@@ -108,10 +108,10 @@ async def test_metrics_plugin_collects_per_run_stats(fake_llm):
   await runner.session_service.create_session(app_name=APP_NAME, user_id="u", session_id="m1")
   events, _ = await _run(runner, "m1", "1박 2일")
   m = travel_agent.metrics_plugin.get(events[-1].invocation_id)
-  # 리서치 3 + 일정 1 + 검수 2 + 수정 1 + 예산 1
-  assert m["llm_calls"] == 8
-  assert m["agents"]["itinerary_critic"]["calls"] == 2
-  assert m["tokens"] == {"prompt": 800, "output": 160, "thought": 40, "total": 1000}
+  # 리서치 3 + 일정 1 + 검수 1 + 수정 1 + 예산 1 (수정 후 재검수 생략)
+  assert m["llm_calls"] == 7
+  assert m["agents"]["itinerary_critic"]["calls"] == 1
+  assert m["tokens"] == {"prompt": 700, "output": 140, "thought": 35, "total": 875}
   assert m["duration_s"] is not None
   # 노드 완료 시점은 실행 순서대로 늘어난다
   ms = m["milestones"]
@@ -156,3 +156,35 @@ async def test_search_quota_fallback_and_circuit_breaker(fake_llm, monkeypatch):
   _, s2 = await _run(runner, "q2", "당일치기")
   assert seen_tools and not any(seen_tools)
   assert s2.state["final_plan"]["search_degraded"] is True
+
+
+def test_route_backtrack_detection():
+  from travel_roulette.routes import area_sequence, backtracks, route_issues
+
+  def day(*areas, cats=None):
+    return {"day": 1, "activities": [
+        {"area": a, "category": (cats or {}).get(i, "관광")} for i, a in enumerate(areas)]}
+
+  # 삼척 사례: 남부 → 시내 → 남서부 → 시내 (왕복)
+  assert backtracks(area_sequence(day("남부", "시내", "남서부", "시내"))) == ["시내"]
+  # 연속 중복은 하나로, 시작 권역으로 마지막에 돌아오는 건 허용
+  assert backtracks(area_sequence(day("시내", "시내", "경포", "시내"))) == []
+  # 이동·숙소는 동선 판단에서 제외
+  assert area_sequence(day("시내", "고속도로", "경포", cats={1: "이동"})) == ["시내", "경포"]
+  # 띄어쓰기 차이는 같은 권역
+  assert backtracks(area_sequence(day("삼척 시내", "장호", "삼척시내", "장호"))) == ["삼척시내", "장호"]
+  issues = route_issues({"days": [day("남", "북", "남", "북")]})
+  assert len(issues) == 1 and "왕복" in issues[0]
+
+
+@pytest.mark.asyncio
+async def test_after_revision_rechecks_when_budget_allows(fake_llm, monkeypatch):
+  monkeypatch.setattr(travel_agent.config, "MAX_REVISIONS", 2)
+  fake_llm.critic_rejections = 1
+  runner = InMemoryRunner(app=travel_agent.app)
+  await runner.session_service.create_session(app_name=APP_NAME, user_id="u", session_id="r1")
+  _, s = await _run(runner, "r1", "1박 2일")
+  # 반려 → 수정 → (기회 남음) 재검수 승인
+  assert fake_llm.calls.count("critic") == 2
+  assert fake_llm.calls.count("reviser") == 1
+  assert "final_plan" in s.state

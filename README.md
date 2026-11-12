@@ -38,9 +38,11 @@ flowchart TD
     J --> P0[prepare_planning<br/><i>코드: 출처 수집</i>]
     P0 --> P[itinerary_planner<br/>일정 초안 JSON]
     P --> C[itinerary_critic<br/>검수 JSON]
-    C --> G{review_gate<br/><i>코드: 필수 조건 검사</i>}
+    C --> G{review_gate<br/><i>코드: 일차 수 · 동선 왕복 검사</i>}
     G -- revise --> V[itinerary_reviser<br/>일정 수정]
-    V --> C
+    V --> AR{after_revision<br/><i>코드: 수정 기회 확인</i>}
+    AR -- recheck --> C
+    AR -- done --> B
     G -- approved --> B[budget_estimator<br/>단가·수량 추정]
     B --> BC[budget_calculator<br/><i>코드: 합계 계산</i>]
     BC --> O[present_plan<br/><i>코드: 결과 조립</i>]
@@ -51,6 +53,8 @@ flowchart TD
 - **LLM이 잘하는 일만 LLM에게** — 추첨, 합산, 필수 조건 검사, 결과 조립은 결정적인 코드로. 검색·요약·일정 구성·검수는 LLM으로.
 - **구조화 출력** — 일정·검수·예산은 모두 Pydantic `output_schema`로 JSON을 받아 UI가 그대로 렌더링합니다.
 - **명시적 컨텍스트** — 모든 LLM 노드는 `include_contents="none"`으로 대화 기록을 받지 않고, Instruction Provider 함수가 세션 state에서 필요한 정보만 골라 프롬프트를 만듭니다.
+- **동선은 코드로 검사** — LLM 검수자는 "남부 → 시내 → 남서부 → 시내" 같은 왕복 동선을 자주 놓칩니다. 플래너가 활동마다 권역(`area`)을 적고, 코드가 일자별 권역 순서를 뽑아 왕복을 찾아냅니다([`routes.py`](travel_roulette/routes.py)). 결과는 게이트 판정과 검수 프롬프트에 함께 쓰입니다.
+- **토큰 다이어트** — 검색 요약·검수·수정·단가 추정은 `thinking_level=low`, 품질이 중요한 일정 작성만 기본 사고 수준. 수정 기회를 다 쓴 뒤에는 결과가 무시될 재검수를 건너뜁니다.
 - **실패에 관대하게** — 날씨 API가 실패하면 계절 정보로 대체, 검수는 최대 수정 횟수 후 그대로 진행, 동시 실행 수는 세마포어로 제한합니다.
 - **검색 할당량 대비** — Google 검색 그라운딩은 일반 호출과 할당량이 따로라 먼저 바닥날 수 있습니다. 429가 나면 리서처가 검색 없이 모델 지식으로 답하고(결과에 "검색 없이 작성" 표시), 이후 10분간은 검색을 건너뛰어 매 요청이 재시도로 시간을 버리지 않게 합니다.
 
@@ -123,6 +127,8 @@ curl -N -X POST localhost:8000/api/challenges \
 
 ## ☁️ 배포 (Cloud Run 예시)
 
+> 현재 공개 배포는 하지 않았습니다. 공개한다면 요청마다 API 비용이 들기 때문에 사용자별 요청 제한(rate limit)을 먼저 넣는 것을 권장합니다.
+
 ```bash
 gcloud run deploy travel-roulette \
   --source . \
@@ -182,6 +188,23 @@ INFO travel_roulette.metrics run_metrics {"duration_s": 41.3, "llm_calls": 8, "t
 
 ---
 
+## 📈 성능 개선 기록
+
+실제 Gemini(`gemini-3.5-flash`)로 `adk eval` 5개 시나리오를 돌려 측정했습니다. 품질은 LLM 루브릭 심사(6개 항목, 0.8 이상 통과)와 코드 채점(6개 조건)으로 봅니다.
+
+| 버전 | 바꾼 것 | 평균 소요 | 평균 토큰 | 루브릭 | 코드 채점 |
+|---|---|---|---|---|---|
+| 초기 | 검색 할당량 소진 상태, 기본 사고 수준 | 135초 (1회) | 42k | – | – |
+| 기준선 | 검색 복구, 리서치·검수·예산 `thinking=low` | 41.4초 | 25.4k | 0.96 (왕복 동선 1건 실패) | 1.00 |
+| v2 | 권역 기반 동선 검사, 재검수 생략, 검수 입력 중복 제거, 리서치 출력 압축 | 47.4초* | 22.2k | 0.96 | 1.00 |
+| **v3** | 출력 필드 축소, 수정 단계 `thinking=low`, 플래너 자가 점검 규칙 | **35.8초** | **18.9k** | **1.00 (5/5)** | **1.00** |
+
+\* v2 평균은 수정이 발생한 3박 4일 케이스(86초) 하나가 끌어올렸습니다.
+
+**어떻게 찾았나** — [`RunMetricsPlugin`](travel_roulette/observability.py)으로 에이전트별 시간을 재 보니 병목은 일정 작성(17~22초)과 수정(21초)이었고, 생성 속도가 초당 약 220토큰이라 **출력·사고 토큰을 줄이는 것 = 속도 개선**이었습니다. 같은 여행지로 비교하려고 평가 세트에 시드를 고정했습니다(대구→수원 2박 3일: 58초·31k → 36초·17k).
+
+**주의** — 기준선·v2는 시드 고정 전이라 시나리오별 여행지가 v3와 다릅니다. 루브릭 심사는 토큰 절약을 위해 1회 샘플링이라 편차가 있을 수 있고, 심사 모델 응답 형식 오류로 채점이 빠진 케이스(기준선·v2 각 1건)는 평균에서 제외했습니다.
+
 ## 📁 구조
 
 ```
@@ -193,6 +216,7 @@ travel_roulette/          ADK 앱 패키지 (adk web이 인식)
 ├── schemas.py            일정 · 검수 · 예산 구조화 출력 스키마
 ├── budget.py             예산 합계 계산
 ├── weather.py            Open-Meteo 날씨 예보
+├── routes.py             일정 동선(권역 순서) 왕복 검사
 ├── render.py             채팅용 마크다운 렌더링
 ├── observability.py      실행별 지표 수집 플러그인
 ├── evals/                adk eval 평가 세트 · 설정 · 커스텀 지표

@@ -49,7 +49,7 @@ def test_challenge_stream_and_share_link(client, fake_llm):
   shared = client.get(f"/api/challenges/{sid}").json()
   assert shared["plan"]["challenge"]["destination"]["name"] == challenge["destination"]["name"]
   assert shared["plan"]["budget"]["travelers"] == 3
-  assert events[-1]["stats"]["llm_calls"] == 8
+  assert events[-1]["stats"]["llm_calls"] == 7
 
 
 def test_invalid_request(client):

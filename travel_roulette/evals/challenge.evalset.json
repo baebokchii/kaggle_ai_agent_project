@@ -1,7 +1,7 @@
 {
   "eval_set_id": "travel_roulette_smoke",
   "name": "랜덤 여행 챌린지 기본 시나리오",
-  "description": "기간·출발지·인원·예산 조합별로 일정과 예산이 조건대로 나오는지 확인",
+  "description": "기간·출발지·인원·예산 조합별로 일정과 예산이 조건대로 나오는지 확인 (시드 고정: 버전 간 같은 여행지로 비교)",
   "eval_cases": [
     {
       "eval_id": "day_trip_seoul",
@@ -21,7 +21,9 @@
       "session_input": {
         "app_name": "travel_roulette",
         "user_id": "eval_user",
-        "state": {}
+        "state": {
+          "seed": 1
+        }
       }
     },
     {
@@ -42,7 +44,9 @@
       "session_input": {
         "app_name": "travel_roulette",
         "user_id": "eval_user",
-        "state": {}
+        "state": {
+          "seed": 2
+        }
       }
     },
     {
@@ -63,7 +67,9 @@
       "session_input": {
         "app_name": "travel_roulette",
         "user_id": "eval_user",
-        "state": {}
+        "state": {
+          "seed": 3
+        }
       }
     },
     {
@@ -84,7 +90,9 @@
       "session_input": {
         "app_name": "travel_roulette",
         "user_id": "eval_user",
-        "state": {}
+        "state": {
+          "seed": 4
+        }
       }
     },
     {
@@ -105,7 +113,9 @@
       "session_input": {
         "app_name": "travel_roulette",
         "user_id": "eval_user",
-        "state": {}
+        "state": {
+          "seed": 5
+        }
       }
     }
   ]

@@ -27,9 +27,9 @@ def _itinerary(days: int) -> dict:
               "day": d,
               "theme": f"{d}일차 테마",
               "activities": [
-                  {"time": "10:00", "title": "명소 방문", "place": "테스트 명소",
+                  {"time": "10:00", "title": "명소 방문", "place": "테스트 명소", "area": "시내",
                    "category": "관광", "description": "둘러보기", "tip": ""},
-                  {"time": "12:30", "title": "점심", "place": "테스트 식당",
+                  {"time": "12:30", "title": "점심", "place": "테스트 식당", "area": "시내",
                    "category": "식사", "description": "향토 음식", "tip": "웨이팅 주의"},
               ],
           }

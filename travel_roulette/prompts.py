@@ -12,6 +12,7 @@ from typing import Any
 from google.adk.agents.readonly_context import ReadonlyContext
 
 from .budget import DAILY_GUIDE, ROOM_GUIDE
+from .routes import route_summary
 
 
 def _get(ctx: ReadonlyContext, key: str, default: Any = "") -> Any:
@@ -56,7 +57,7 @@ def spots_instruction(ctx: ReadonlyContext) -> str:
       "- 각 장소: 이름 / 위치(동네) / 추천 이유 한 줄 / 소요 시간 / 입장료(알면) / 휴무일(알면)\n"
       "- 서로 가까운 장소끼리 동네별로 묶어서 정리\n"
       "- 실내 명소(비 올 때 대안)도 2곳 이상\n"
-      "검색으로 확인되지 않은 장소는 지어내지 마세요. 간결한 불릿 목록으로 답하세요."
+      "검색으로 확인되지 않은 장소는 지어내지 마세요. 장소마다 한 줄, 전체 25줄 이내의 간결한 불릿 목록으로 답하세요."
   )
 
 
@@ -68,7 +69,7 @@ def food_instruction(ctx: ReadonlyContext) -> str:
       "- 맛집 6~10곳: 이름 / 동네 / 대표 메뉴 / 1인 가격대 / 웨이팅·휴무 정보(알면)\n"
       "- 분위기 좋은 카페·디저트 3~5곳\n"
       "- 예산 스타일에 맞는 곳 위주로\n"
-      "검색으로 확인되지 않은 가게는 지어내지 마세요. 간결한 불릿 목록으로 답하세요."
+      "검색으로 확인되지 않은 가게는 지어내지 마세요. 가게마다 한 줄, 전체 25줄 이내의 간결한 불릿 목록으로 답하세요."
   )
 
 
@@ -80,7 +81,7 @@ def logistics_instruction(ctx: ReadonlyContext) -> str:
       "- 현지 이동 수단(시내버스, 택시, 렌터카, 도보, 자전거 등)과 대략 비용\n"
       "- 숙박하기 좋은 지역 2~3곳과 예산 스타일별 1박 객실 가격대\n"
       "- 계절 이슈나 축제, 주의사항(배편 결항, 휴무 시즌 등)\n"
-      "간결한 불릿 목록으로 답하세요."
+      "전체 20줄 이내의 간결한 불릿 목록으로 답하세요."
   )
 
 
@@ -102,27 +103,30 @@ def planner_instruction(ctx: ReadonlyContext) -> str:
       f"[교통·숙박 리서치]\n{_get(ctx, 'logistics_notes', '없음')}\n\n"
       "[규칙]\n"
       f"1. {day_rule}\n"
-      "2. 하루 주요 방문지는 3~5곳. 가까운 동네끼리 묶어 이동 동선을 최소화하세요.\n"
+      "2. 하루 주요 방문지는 3~5곳. 하루는 1~2개 권역 안에서 움직이고, 권역 사이를 오가는 "
+      "왕복(A→B→A)은 만들지 마세요. 각 활동의 area에 권역 이름을 일관되게 적으세요.\n"
       "3. 점심·저녁 식사는 매일 포함하고, 리서치에 나온 실제 가게를 우선 사용하세요.\n"
       "4. 시간(time)은 HH:MM 형식으로 오름차순. 이동 시간도 고려하세요.\n"
       "5. 비 예보가 있는 날은 실내 일정을 늘리세요.\n"
-      "6. 리서치에 없는 장소를 지어내지 마세요."
+      "6. 리서치에 없는 장소를 지어내지 마세요.\n"
+      "7. 출력 전에 스스로 점검하세요: 일차 수, 첫날 도착·마지막 날 귀가 시간, 매일 점심·저녁, 권역 왕복 여부."
   )
 
 
 def critic_instruction(ctx: ReadonlyContext) -> str:
   ch = _get(ctx, "challenge", {})
   return _COMMON + (
-      "당신은 깐깐한 여행 일정 검수자입니다. 아래 일정이 실제로 따라 할 수 있는지 검토하세요.\n\n"
+      "당신은 깐깐한 여행 일정 검수자입니다. 사용자 메시지로 받은 일정(JSON)이 "
+      "실제로 따라 할 수 있는지 검토하세요.\n\n"
       f"[챌린지 정보]\n{challenge_brief(ch)}\n\n"
       f"[날씨]\n{_get(ctx, 'weather_text', '정보 없음')}\n\n"
-      f"[검토할 일정]\n{_json(_get(ctx, 'itinerary', {}))}\n\n"
+      f"[코드가 정리한 일자별 권역 순서]\n{route_summary(_get(ctx, 'itinerary', {}))}\n\n"
       "[체크리스트]\n"
       f"- 일차 수가 정확히 {ch.get('days', 1)}일인가?\n"
       "- 첫날 도착·마지막 날 귀가 이동 시간이 현실적인가?\n"
       "- 하루 일정이 너무 빡빡하거나(이동만 하다 끝남) 너무 비어 있지 않은가?\n"
       "- 매일 점심·저녁 식사가 있는가?\n"
-      "- 동선: 각 날의 장소를 순서대로 동네(지역)로 바꿔 적어 보고, 같은 지역을 갔다가 돌아오는 왕복(A→B→A→B)이 있으면 지적하세요. 시간 순서도 맞는가?\n"
+      "- 동선: 위 권역 순서에 왕복(A→B→A)이 있거나, 권역 이름이 실제 위치와 맞지 않으면 지적하세요. 시간 순서도 맞는가?\n"
       "- 날씨·계절을 고려했는가?\n\n"
       "사소한 표현 문제는 무시하고, 여행을 망칠 만한 문제만 지적하세요. "
       "문제가 없으면 approved=true, issues=[], feedback=\"\"로 답하세요."
@@ -138,6 +142,7 @@ def reviser_instruction(ctx: ReadonlyContext) -> str:
       f"[기존 일정]\n{_json(_get(ctx, 'itinerary', {}))}\n\n"
       f"[발견된 문제]\n{_json(review.get('issues', []))}\n\n"
       f"[수정 지시]\n{review.get('feedback', '')}\n\n"
+      f"[현재 일자별 권역 순서]\n{route_summary(_get(ctx, 'itinerary', {}))}\n\n"
       f"[참고: 명소 리서치]\n{_get(ctx, 'spots_notes', '없음')}\n\n"
       f"[참고: 맛집 리서치]\n{_get(ctx, 'food_notes', '없음')}"
   )

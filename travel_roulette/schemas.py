@@ -18,9 +18,10 @@ class Activity(BaseModel):
   time: str = Field(description="시작 시각 (HH:MM, 24시간제)")
   title: str = Field(description="활동 제목 (짧게)")
   place: str = Field(description="실제 장소명")
+  area: str = Field(description="장소가 속한 동네·권역 이름 (예: 시내, 경포, 주문진). 같은 권역은 항상 같은 이름으로")
   category: ActivityCategory
-  description: str = Field(description="무엇을 하는지 1~2문장")
-  tip: str = Field(description="꿀팁 한 줄. 없으면 빈 문자열")
+  description: str = Field(description="무엇을 하는지 한 문장 (40자 이내)")
+  tip: str = Field(description="꿀팁 (25자 이내). 꼭 필요할 때만, 없으면 빈 문자열")
 
 
 class DayPlan(BaseModel):
@@ -31,13 +32,13 @@ class DayPlan(BaseModel):
 
 class Itinerary(BaseModel):
   title: str = Field(description="여행 일정 제목 (재치 있게)")
-  summary: str = Field(description="여행 전체 요약 2~3문장")
+  summary: str = Field(description="여행 전체 요약 2문장")
   getting_there: str = Field(description="출발지에서 가는 방법과 소요 시간")
   local_transport: str = Field(description="현지 이동 수단 추천")
   stay_area: str = Field(description="추천 숙소 지역과 이유. 당일치기면 빈 문자열")
   days: list[DayPlan]
   rainy_day_backup: str = Field(description="비 올 때 대체 코스")
-  tips: list[str] = Field(description="여행 꿀팁 3~5개")
+  tips: list[str] = Field(description="여행 꿀팁 3개 (각 40자 이내)")
 
 
 class Review(BaseModel):

@@ -49,8 +49,13 @@ STAGES: dict[str, tuple[str, str]] = {
     "prepare_planning": ("plan", "일정 짜는 중"),
     "itinerary_planner": ("review", "일정 검수"),
     "review_gate": ("budget", "예산 계산"),  # approved 라우트일 때만
+    "after_revision": ("budget", "예산 계산"),  # done 라우트일 때만
     "present_plan": ("done", "완성"),
 }
+
+
+# 특정 라우트로 나갈 때만 다음 단계로 치는 노드
+_ROUTE_GATED = {"review_gate": "approved", "after_revision": "done"}
 
 
 def make_session_service() -> BaseSessionService:
@@ -143,8 +148,8 @@ async def _run_challenge(req: TripRequest) -> AsyncIterator[str]:
           user_id=USER_ID, session_id=session_id, new_message=message
       ):
         node = _node_name(event)
-        if node == "review_gate" and getattr(event.actions, "route", None) != "approved":
-          node = None  # 수정 루프로 돌아가는 중
+        if node in _ROUTE_GATED and getattr(event.actions, "route", None) != _ROUTE_GATED[node]:
+          node = None  # 수정 루프 안에 있는 중
         if node:
           stage, label = STAGES[node]
           if stage not in seen_stages:

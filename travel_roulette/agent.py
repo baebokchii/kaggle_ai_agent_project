@@ -14,8 +14,8 @@
       │
     itinerary_critic  ◀────────┐   검수 (구조화 JSON)
       │                        │
-    review_gate  ── revise ──▶ itinerary_reviser
-      │ approved
+    review_gate  ── revise ──▶ itinerary_reviser ─▶ after_revision
+      │ approved                  (수정 기회 남음 → 재검수 / 소진 → 예산으로)
     budget_estimator       항목별 단가·수량만 추정 (LLM)
       │
     budget_calculator      (코드) 합계·예비비·1인당 계산
@@ -48,6 +48,7 @@ from .budget import calculate_budget
 from .destinations import draw_destination
 from .observability import RunMetricsPlugin
 from .render import render_markdown
+from .routes import route_issues
 from .request_parser import TripRequest, merge_request
 from .schemas import BudgetEstimate, Itinerary, Review
 from .weather import describe_weather, fetch_forecast
@@ -76,7 +77,7 @@ async def setup_challenge(ctx: Context, node_input: Any) -> str:
   visited = list(ctx.state.get("visited") or [])
   exclude = list(dict.fromkeys([*req.exclude, *visited]))
 
-  seed = ctx.state.get("temp:seed")  # 테스트 재현용
+  seed = ctx.state.get("seed")  # 평가·테스트 재현용 (같은 시드 → 같은 여행지)
   rng = random.Random(seed) if seed is not None else None
   draw = draw_destination(req.nights, req.departure, exclude=exclude, rng=rng)
   dest = draw.destination
@@ -254,7 +255,8 @@ itinerary_reviser = LlmAgent(
     include_contents="none",
     output_schema=Itinerary,
     output_key="itinerary",
-    generate_content_config=config.gen_config(0.4, config.PLAN_THINKING),
+    # 수정은 구체적인 피드백을 반영하는 작업이라 깊은 추론이 필요 없다 → low
+    generate_content_config=config.gen_config(0.4, config.LIGHT_THINKING),
 )
 
 
@@ -267,6 +269,7 @@ def hard_check_itinerary(itinerary: dict[str, Any], expected_days: int) -> list[
   for i, day in enumerate(days, 1):
     if not day.get("activities"):
       issues.append(f"Day {i}에 활동이 없습니다.")
+  issues.extend(route_issues(itinerary))
   return issues
 
 
@@ -290,6 +293,20 @@ def review_gate(ctx: Context, node_input: Any) -> str:
   ctx.state["revision_count"] = count + 1
   ctx.route = "revise"
   return "검수 피드백을 반영해 일정을 수정하세요."
+
+
+def after_revision(ctx: Context) -> str:
+  """수정 후: 남은 수정 기회가 있으면 재검수, 없으면 재검수 없이 예산 단계로.
+
+  수정 횟수를 다 썼다면 재검수 결과와 상관없이 게이트가 통과시키므로
+  재검수 LLM 호출은 시간·토큰 낭비다.
+  """
+  count = int(ctx.state.get("revision_count") or 0)
+  if count < config.MAX_REVISIONS:
+    ctx.route = "recheck"
+    return "수정된 일정을 다시 검토하세요."
+  ctx.route = "done"
+  return "확정된 일정의 예산 항목을 작성하세요."
 
 
 # ---------------------------------------------------------------------------
@@ -353,6 +370,7 @@ def present_plan(ctx: Context):
 setup_node = FunctionNode(func=setup_challenge, name="setup_challenge", timeout=30)
 prepare_node = FunctionNode(func=prepare_planning, name="prepare_planning")
 gate_node = FunctionNode(func=review_gate, name="review_gate")
+after_revision_node = FunctionNode(func=after_revision, name="after_revision")
 calculator_node = FunctionNode(func=budget_calculator, name="budget_calculator")
 present_node = FunctionNode(func=present_plan, name="present_plan")
 
@@ -371,7 +389,8 @@ root_agent = Workflow(
             gate_node,
         ),
         (gate_node, {"revise": itinerary_reviser, "approved": budget_estimator}),
-        (itinerary_reviser, itinerary_critic),
+        (itinerary_reviser, after_revision_node),
+        (after_revision_node, {"recheck": itinerary_critic, "done": budget_estimator}),
         (budget_estimator, calculator_node, present_node),
     ],
 )

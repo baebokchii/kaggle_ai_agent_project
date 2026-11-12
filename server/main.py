@@ -32,7 +32,7 @@ load_dotenv()
 
 from travel_roulette import agent as travel_agent  # noqa: E402  (.env 로드 이후 import)
 from travel_roulette.config import APP_NAME  # noqa: E402
-from travel_roulette.destinations import DEPARTURES, DESTINATIONS, DURATION_LABELS  # noqa: E402
+from travel_roulette.dart import DEPARTURES, DURATION_LABELS, GeocodeError, range_for  # noqa: E402
 from travel_roulette.request_parser import BUDGET_LEVELS, TripRequest  # noqa: E402
 
 logger = logging.getLogger("travel_roulette.server")
@@ -45,7 +45,7 @@ MAX_CONCURRENT_RUNS = int(os.getenv("MAX_CONCURRENT_RUNS", "4"))
 # 노드가 끝나면(이벤트를 내면) 시작되는 다음 단계.
 # LLM 노드는 응답이 끝나야 이벤트가 나오므로 '완료된 노드 → 다음 단계 진행 중'으로 매핑한다.
 STAGES: dict[str, tuple[str, str]] = {
-    "setup_challenge": ("research", "명소·맛집·교통 리서치"),
+    "setup_challenge": ("research", "주변 명소·맛집·교통 리서치"),
     "prepare_planning": ("plan", "일정 짜는 중"),
     "itinerary_planner": ("review", "일정 검수"),
     "review_gate": ("budget", "예산 계산"),  # approved 라우트일 때만
@@ -117,10 +117,12 @@ async def healthz() -> dict[str, str]:
 @app.get("/api/meta")
 async def meta() -> dict[str, Any]:
   return {
-      "durations": [{"nights": n, "label": label} for n, label in DURATION_LABELS.items() if n <= 4],
-      "departures": list(DEPARTURES),
+      "durations": [
+          {"nights": n, "label": label, "range_km": list(range_for(n))}
+          for n, label in DURATION_LABELS.items() if n <= 4
+      ],
+      "departures": [{"name": d.name, "lat": d.lat, "lon": d.lon} for d in DEPARTURES.values()],
       "budget_levels": list(BUDGET_LEVELS),
-      "destinations": [d.name for d in DESTINATIONS],
   }
 
 
@@ -181,9 +183,20 @@ async def _run_challenge(req: TripRequest) -> AsyncIterator[str]:
         yield _sse({"type": "result", "id": session_id, "plan": plan, "stats": stats})
       else:
         yield _sse({"type": "error", "message": "일정을 완성하지 못했어요. 다시 시도해 주세요."})
-    except Exception:  # 사용자에게는 일반 메시지만
+    except Exception as e:  # 사용자에게는 일반 메시지만
       logger.exception("챌린지 실행 실패 (session=%s)", session_id)
-      yield _sse({"type": "error", "message": "AI 호출 중 문제가 생겼어요. 잠시 후 다시 시도해 주세요."})
+      yield _sse({"type": "error", "message": _user_message(e)})
+
+
+def _user_message(error: BaseException) -> str:
+  seen: set[int] = set()
+  err: BaseException | None = error
+  while err is not None and id(err) not in seen:
+    seen.add(id(err))
+    if isinstance(err, GeocodeError):
+      return f"{err} 지도 서비스가 잠시 응답하지 않을 수도 있어요."
+    err = err.__cause__ or err.__context__
+  return "AI 호출 중 문제가 생겼어요. 잠시 후 다시 시도해 주세요."
 
 
 @app.post("/api/challenges")

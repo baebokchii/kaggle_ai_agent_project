@@ -24,8 +24,9 @@ def _events(resp) -> list[dict]:
 
 def test_meta(client):
   data = client.get("/api/meta").json()
-  assert data["durations"][0] == {"nights": 0, "label": "당일치기"}
-  assert "서울" in data["departures"] and "제주" in data["destinations"]
+  assert data["durations"][0]["label"] == "당일치기"
+  assert data["departures"][0]["name"] == "서울" and "lat" in data["departures"][0]
+  assert data["durations"][0]["range_km"] == [20, 130]
 
 
 def test_challenge_stream_and_share_link(client, fake_llm):
@@ -43,7 +44,8 @@ def test_challenge_stream_and_share_link(client, fake_llm):
 
   challenge = next(e for e in events if e["type"] == "challenge")["challenge"]
   assert challenge["departure"] == "대전" and challenge["travelers"] == 3
-  assert challenge["destination"]["name"] not in ("전주", "대전")
+  assert 40 <= challenge["distance_km"] <= 300  # 1박 2일 다트 범위
+  assert "lat" in challenge["destination"]
 
   sid = events[-1]["id"]
   shared = client.get(f"/api/challenges/{sid}").json()

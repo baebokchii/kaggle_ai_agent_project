@@ -12,7 +12,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
-from .destinations import DEPARTURES, MAX_NIGHTS
+from .dart import DEPARTURES, MAX_NIGHTS
 
 BUDGET_LEVELS = ("알뜰", "보통", "여유")
 

@@ -27,9 +27,9 @@ def _json(value: Any) -> str:
 def challenge_brief(ch: dict[str, Any]) -> str:
   dest = ch["destination"]
   lines = [
-      f"- 여행지: {dest['name']} ({dest['province']}) — {dest['pitch']}",
-      f"- 키워드: {', '.join(dest['tags'])}",
-      f"- 출발지: {ch['departure']} (직선거리 약 {ch['distance_km']}km, 접근: {dest['access']})",
+      f"- 다트가 꽂힌 곳: {dest['full_name']} (위도 {dest['lat']}, 경도 {dest['lon']})",
+      f"- 여행 중심: {dest['name']} ({dest['province']})",
+      f"- 출발지: {ch['departure']} (직선거리 약 {ch['distance_km']}km)",
       f"- 기간: {ch['duration_label']} (총 {ch['days']}일)",
       f"- 인원: {ch['travelers']}명",
       f"- 예산 스타일: {ch['budget_level']}",
@@ -40,8 +40,9 @@ def challenge_brief(ch: dict[str, Any]) -> str:
 
 
 _COMMON = (
-    "모든 답변은 한국어로 작성하세요. 사용자는 '랜덤 여행 챌린지'로 여행지를 무작위 추첨받았고, "
-    "추첨 결과를 바꾸지 말고 그 여행지에서 최고의 여행을 만들어야 합니다.\n\n"
+    "모든 답변은 한국어로 작성하세요. 사용자는 지도에 다트를 던져 무작위로 여행지를 정했습니다. "
+    "다트가 꽂힌 읍·면·동을 여행의 중심으로 삼되, 그곳만으로 볼거리가 부족하면 같은 시·군과 "
+    "차로 1시간 이내의 인접 지역까지 넓혀도 됩니다. 다른 도시로 여행지를 바꾸지는 마세요.\n\n"
 )
 
 

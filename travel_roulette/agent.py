@@ -1,4 +1,4 @@
-"""🎲 랜덤 국내 여행 챌린지 — ADK Workflow 그래프 정의.
+"""랜덤 국내 여행 챌린지: ADK Workflow 그래프 정의.
 
     START
       │
@@ -45,7 +45,7 @@ from google.genai import types
 
 from . import config, prompts
 from .budget import calculate_budget
-from .destinations import draw_destination
+from . import dart
 from .observability import RunMetricsPlugin
 from .render import render_markdown
 from .routes import route_issues
@@ -67,7 +67,7 @@ def _content_text(value: Any) -> str:
 
 
 # ---------------------------------------------------------------------------
-# 1) 챌린지 세팅: 조건 파싱 + 랜덤 추첨 + 날씨 (LLM 없음)
+# 1) 챌린지 세팅: 조건 파싱 + 지도에 다트 던지기 + 날씨 (LLM 없음)
 # ---------------------------------------------------------------------------
 async def setup_challenge(ctx: Context, node_input: Any) -> str:
   message = _content_text(node_input)
@@ -79,8 +79,8 @@ async def setup_challenge(ctx: Context, node_input: Any) -> str:
 
   seed = ctx.state.get("seed")  # 평가·테스트 재현용 (같은 시드 → 같은 여행지)
   rng = random.Random(seed) if seed is not None else None
-  draw = draw_destination(req.nights, req.departure, exclude=exclude, rng=rng)
-  dest = draw.destination
+  throw = await dart.throw_dart(req.nights, req.departure, exclude=exclude, rng=rng)
+  dest = throw.landing
 
   forecast = None
   if req.start_date:
@@ -89,7 +89,7 @@ async def setup_challenge(ctx: Context, node_input: Any) -> str:
     )
 
   challenge = {
-      **draw.to_dict(),
+      **throw.to_dict(),
       "travelers": req.travelers,
       "budget_level": req.budget_level,
       "start_date": req.start_date.isoformat() if req.start_date else None,
@@ -100,8 +100,9 @@ async def setup_challenge(ctx: Context, node_input: Any) -> str:
   ctx.state["weather"] = forecast
   ctx.state["weather_text"] = describe_weather(forecast, req.start_date)
   ctx.state["revision_count"] = 0
-  logger.info("추첨 결과: %s (%s, 후보 %d곳)", dest.name, draw.departure.name, draw.candidates)
-  return "다음 랜덤 여행 챌린지를 리서치하세요.\n" + prompts.challenge_brief(challenge)
+  logger.info("다트: %s (%.4f, %.4f) · %s 출발 · 빗나감 %d번",
+              dest.full_name, dest.lat, dest.lon, throw.departure.name, len(throw.misses))
+  return "지도에 다트를 던져 정한 여행지를 리서치하세요.\n" + prompts.challenge_brief(challenge)
 
 
 # ---------------------------------------------------------------------------
@@ -367,7 +368,7 @@ def present_plan(ctx: Context):
 # ---------------------------------------------------------------------------
 # Workflow 그래프
 # ---------------------------------------------------------------------------
-setup_node = FunctionNode(func=setup_challenge, name="setup_challenge", timeout=30)
+setup_node = FunctionNode(func=setup_challenge, name="setup_challenge", timeout=60)
 prepare_node = FunctionNode(func=prepare_planning, name="prepare_planning")
 gate_node = FunctionNode(func=review_gate, name="review_gate")
 after_revision_node = FunctionNode(func=after_revision, name="after_revision")

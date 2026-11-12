@@ -38,7 +38,8 @@ async def test_full_pipeline_with_review_loop(fake_llm):
   assert st["trip_request"]["nights"] == 2
   assert st["trip_request"]["departure"] == "부산"
   assert st["trip_request"]["budget_level"] == "알뜰"
-  assert st["challenge"]["destination"]["name"] != "부산"
+  lo, hi = st["challenge"]["range_km"]
+  assert lo <= st["challenge"]["distance_km"] <= hi  # 2박 3일 다트 범위 안
 
   # 병렬 리서치 3개 + 출처 수집
   for key in ("spots_notes", "food_notes", "logistics_notes"):

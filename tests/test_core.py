@@ -1,4 +1,4 @@
-"""추첨·파서·예산·날씨 등 LLM과 무관한 순수 로직 테스트."""
+"""다트·파서·예산·날씨 등 LLM과 무관한 순수 로직 테스트."""
 
 from __future__ import annotations
 
@@ -8,53 +8,100 @@ import random
 import pytest
 
 from travel_roulette.budget import calculate_budget
-from travel_roulette.destinations import (
-    DEPARTURES, DESTINATIONS_BY_NAME, MAX_NIGHTS, candidates_for, draw_destination, haversine_km)
+from travel_roulette import dart
+from travel_roulette.dart import DEPARTURES, MAX_NIGHTS, haversine_km, range_for
 from travel_roulette.request_parser import (
     TripRequest, merge_request, parse_budget_level, parse_departure, parse_nights,
     parse_start_date, parse_travelers)
 from travel_roulette.weather import describe_weather, parse_forecast
 
 
-# ---- 추첨 ----
+# ---- 다트 ----
 @pytest.mark.parametrize("departure", list(DEPARTURES))
 @pytest.mark.parametrize("nights", range(MAX_NIGHTS + 1))
-def test_every_departure_and_duration_has_candidates(departure, nights):
-  assert candidates_for(nights, departure), (departure, nights)
+def test_samples_stay_in_range(departure, nights):
+  dep = DEPARTURES[departure]
+  lo, hi = range_for(nights)
+  rng = random.Random(nights)
+  for _ in range(200):
+    lat, lon = dart.sample_point(dep, nights, rng)
+    d = haversine_km(dep.lat, dep.lon, lat, lon)
+    assert d >= lo - 1 and (hi is None or d <= hi + 1)
 
 
-def test_day_trip_stays_close_and_skips_islands():
-  for dest, dist in candidates_for(0, "서울"):
-    assert dist <= 170
-    assert dest.access == "육로"
-  names = {d.name for d, _ in candidates_for(0, "서울")}
-  assert "제주" not in names and "부산" not in names and "서울" not in names
+def test_land_prefilter():
+  for lat, lon in [(37.5665, 126.978), (37.75, 128.88), (34.81, 126.39), (33.38, 126.55), (37.49, 130.86)]:
+    assert dart.maybe_land(lat, lon)
+  for lat, lon in [(36.0, 125.5), (37.5, 130.0), (34.0, 127.5), (39.0, 127.5)]:
+    assert not dart.maybe_land(lat, lon)
+
+
+# 실제 Nominatim 응답(2026-11)에서 가져온 주소
+NOMINATIM = {
+    "seoul": {"quarter": "을지로1가", "suburb": "명동", "borough": "중구", "city": "서울특별시", "country_code": "kr"},
+    "yeongyang": {"village": "동부리", "town": "영양읍", "county": "영양군", "province": "경상북도", "country_code": "kr"},
+    "jeju": {"city_district": "아라동", "city": "제주시", "province": "제주특별자치도", "country_code": "kr"},
+    "sea": {"county": "부안군", "province": "전북특별자치도", "country_code": "kr"},
+    "north": {"county": "창도군", "state": "강원도", "country_code": "kp"},
+}
+
+
+def test_parse_landing():
+  lm, _ = dart.parse_landing(37.5, 127.0, {"address": NOMINATIM["seoul"]})
+  assert (lm.name, lm.sido_short, lm.full_name) == ("중구 명동", "서울", "서울특별시 중구 명동")
+  lm, _ = dart.parse_landing(36.6, 129.1, {"address": NOMINATIM["yeongyang"]})
+  assert (lm.name, lm.village) == ("영양군 영양읍", "동부리")
+  lm, _ = dart.parse_landing(33.4, 126.5, {"address": NOMINATIM["jeju"]})
+  assert (lm.name, lm.sido_short) == ("제주시 아라동", "제주")
+  assert dart.parse_landing(35.5, 126.0, {"address": NOMINATIM["sea"]}) == (None, "빈 땅")
+  assert dart.parse_landing(38.6, 127.6, {"address": NOMINATIM["north"]}) == (None, "국외")
+  assert dart.parse_landing(36.0, 125.5, None) == (None, "빈 땅")
+
+
+def test_short_sido_handles_new_province_names():
+  assert dart.short_sido("경상북도") == "경북"
+  assert dart.short_sido("전남광주통합특별시") == "전남광주"
+  assert dart.short_sido("세종특별자치시") == "세종"
+  assert dart.short_sido("어딘가") == "어딘가"
 
 
 def test_island_rules():
-  assert "제주" not in {d.name for d, _ in candidates_for(0, "서울")}
-  assert "제주" in {d.name for d, _ in candidates_for(1, "서울")}
-  assert "울릉도" not in {d.name for d, _ in candidates_for(1, "서울")}
-  assert "울릉도" in {d.name for d, _ in candidates_for(2, "서울")}
+  jeju, _ = dart.parse_landing(33.4, 126.5, {"address": NOMINATIM["jeju"]})
+  assert dart.trip_rule(jeju, 0) and not dart.trip_rule(jeju, 1)
 
 
-def test_draw_is_reproducible_with_seed_and_respects_exclude():
-  a = draw_destination(2, "서울", rng=random.Random(1))
-  b = draw_destination(2, "서울", rng=random.Random(1))
-  assert a.destination == b.destination
-  c = draw_destination(2, "서울", exclude=[a.destination.name], rng=random.Random(1))
-  assert c.destination != a.destination
+@pytest.mark.asyncio
+async def test_throw_dart_records_misses_and_is_reproducible(fake_geo):
+  calls = []
+
+  async def flaky(lat, lon):
+    calls.append((lat, lon))
+    return None if len(calls) <= 2 else await fake_geo(lat, lon)  # 처음 두 번은 바다/빈 땅
+
+  a = await dart.throw_dart(1, "대전", rng=random.Random(5), geocoder=flaky)
+  assert len(a.misses) == 2 and all(m["reason"] == "빈 땅" for m in a.misses)
+  lo, hi = range_for(1)
+  assert lo <= a.distance_km <= hi
+  c = await dart.throw_dart(1, "대전", rng=random.Random(5))
+  d = await dart.throw_dart(1, "대전", rng=random.Random(5))
+  assert (c.landing.lat, c.landing.lon) == (d.landing.lat, d.landing.lon)  # 같은 시드 → 같은 지점
+  e = await dart.throw_dart(1, "대전", rng=random.Random(5), exclude=[c.landing.name])
+  assert e.landing.name != c.landing.name
 
 
-def test_draw_relaxes_when_everything_excluded():
-  everything = list(DESTINATIONS_BY_NAME)
-  r = draw_destination(0, "서울", exclude=everything, rng=random.Random(0))
-  assert r.relaxed
+@pytest.mark.asyncio
+async def test_throw_dart_gives_up_on_all_sea():
+  async def ocean(lat, lon):
+    return None
+
+  with pytest.raises(dart.GeocodeError):
+    await dart.throw_dart(0, "서울", rng=random.Random(0), geocoder=ocean, max_lookups=3)
 
 
-def test_draw_rejects_unknown_departure():
+@pytest.mark.asyncio
+async def test_throw_dart_rejects_unknown_departure():
   with pytest.raises(ValueError):
-    draw_destination(1, "평양")
+    await dart.throw_dart(1, "평양")
 
 
 def test_haversine_seoul_busan():

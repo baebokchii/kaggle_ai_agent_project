@@ -4,63 +4,110 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>랜덤 여행 챌린지</title>
-  <meta name="description" content="기간만 고르면 국내 여행지를 랜덤으로 뽑아 일정과 예산까지 짜드려요.">
+  <meta name="description" content="지도에 다트를 던져 꽂힌 동네로 떠나는 여행. 일정과 예산까지 짜드려요.">
+  <meta name="theme-color" content="#f6f1e7" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#15140f" media="(prefers-color-scheme: dark)">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Gowun+Dodum&family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" crossorigin="">
+  <link rel="stylesheet" href="/static/style.css?v=13">
 </head>
 <body>
-  <main class="wrap">
-    <header class="masthead">
-      <p class="eyebrow">RANDOM TRIP CHALLENGE</p>
-      <h1>어디로 갈지는<br><span class="hl">룰렛</span>이 정합니다</h1>
-      <p class="lede">기간만 고르세요. 국내 여행지 한 곳을 무작위로 뽑아 일정과 예산까지 짜드려요.</p>
-    </header>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <symbol id="i-dart" viewBox="0 0 24 24"><path d="M4 20l9.5-9.5"/><path d="M13.5 10.5l2-5 3 3-5 2z"/><path d="M15.5 5.5L18 3M18.5 8.5L21 6M16 3h2v2M19 6h2v2"/></symbol>
+      <symbol id="i-map" viewBox="0 0 24 24"><path d="M3.5 6.5l5.5-2.5 6 2.5 5.5-2.5v13.5l-5.5 2.5-6-2.5-5.5 2.5z"/><path d="M9 4v13.5M15 6.5V20"/></symbol>
+      <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 21s-6.5-5.6-6.5-10.5a6.5 6.5 0 1 1 13 0C18.5 15.4 12 21 12 21z"/><circle cx="12" cy="10.5" r="2.3"/></symbol>
+      <symbol id="i-meal" viewBox="0 0 24 24"><path d="M7 3v18M4.5 3v5a2.5 2.5 0 0 0 5 0V3M17 21V3c-2 1.2-3 3.4-3 6.5 0 2.2 1.2 3.5 3 3.5"/></symbol>
+      <symbol id="i-cafe" viewBox="0 0 24 24"><path d="M4 9h12v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5V9z"/><path d="M16 11h1.5a2.5 2.5 0 0 1 0 5H16M8 3.5v2.5M12 3.5v2.5"/></symbol>
+      <symbol id="i-ticket" viewBox="0 0 24 24"><path d="M3.5 7.5h17v3a1.8 1.8 0 0 0 0 3.6v3.4h-17v-3.4a1.8 1.8 0 0 0 0-3.6z"/><path d="M14.5 8v1.5M14.5 11.25v1.5M14.5 14.5V16"/></symbol>
+      <symbol id="i-bag" viewBox="0 0 24 24"><path d="M5 8h14l-1.2 12H6.2L5 8z"/><path d="M9 8V6.5a3 3 0 0 1 6 0V8"/></symbol>
+      <symbol id="i-bed" viewBox="0 0 24 24"><path d="M3 19V6M3 15h18v4M21 15v-2.5a3 3 0 0 0-3-3h-7V15"/><circle cx="7" cy="11.5" r="1.7"/></symbol>
+      <symbol id="i-train" viewBox="0 0 24 24"><rect x="6" y="3" width="12" height="14" rx="3"/><path d="M6 10.5h12M9.5 17l-2.5 4M14.5 17l2.5 4"/><circle cx="9.5" cy="13.75" r=".9" class="dot"/><circle cx="14.5" cy="13.75" r=".9" class="dot"/></symbol>
+      <symbol id="i-leaf" viewBox="0 0 24 24"><path d="M5 19c0-8 5-13 14-14 0 9-5 14-13 14z"/><path d="M5 19l7-7"/></symbol>
+      <symbol id="i-umbrella" viewBox="0 0 24 24"><path d="M3.5 12a8.5 8.5 0 0 1 17 0z"/><path d="M12 12v6.5a2 2 0 0 1-4 0"/></symbol>
+      <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1"/><path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1"/></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+      <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M19.5 11A7.5 7.5 0 0 0 6 6.5L4.5 8M4.5 4v4h4M4.5 13A7.5 7.5 0 0 0 18 17.5l1.5-1.5M19.5 20v-4h-4"/></symbol>
+      <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3.5l9.5 16.5h-19z"/><path d="M12 10v4.5M12 17.25v.25"/></symbol>
+    </defs>
+  </svg>
 
-    <section class="panel" id="setup">
-      <h2 class="label">여행 기간</h2>
-      <div class="chips" id="durations" role="radiogroup" aria-label="여행 기간"></div>
-
-      <details class="options">
-        <summary>옵션 더보기 <span class="muted" id="optSummary"></span></summary>
-        <div class="grid">
-          <label>출발지
-            <select id="departure"></select>
-          </label>
-          <label>인원
-            <input id="travelers" type="number" min="1" max="10" value="2" inputmode="numeric">
-          </label>
-          <label>예산 스타일
-            <select id="budget"></select>
-          </label>
-          <label>출발일 <small class="muted">(2주 이내면 날씨 반영)</small>
-            <input id="startDate" type="date">
-          </label>
-        </div>
-      </details>
-
-      <button class="spin" id="spinBtn" type="button">
-        <span class="dice" aria-hidden="true">🎲</span> 룰렛 돌리기
-      </button>
-    </section>
-
-    <section class="panel stage hidden" id="stage" aria-live="polite">
-      <div class="roulette" id="roulette">
-        <div class="slot" id="slot">?</div>
-        <p class="slot-sub" id="slotSub">여행지를 추첨하고 있어요…</p>
+  <main class="page" id="top">
+    <section class="setup" id="setup" aria-labelledby="title">
+      <div class="setup-copy">
+        <h1 id="title">어디로 갈지는 <br><span class="hl">다트</span>가 정합니다</h1>
+        <p class="lede">기간과 출발지를 고르면 그 안에서 갈 수 있는 거리의 지도에 다트를 던져요. 꽂힌 동네를 중심으로 일정과 예산까지 짜드려요.</p>
       </div>
-      <ol class="steps" id="steps"></ol>
-      <p class="error hidden" id="error"></p>
+
+      <form class="setup-form" id="setupForm">
+        <fieldset class="field">
+          <legend>여행 기간</legend>
+          <div class="seg" id="durations" role="radiogroup" aria-label="여행 기간"></div>
+        </fieldset>
+
+        <details class="options">
+          <summary><span>조건 바꾸기</span> <span class="muted" id="optSummary"></span></summary>
+          <div class="grid">
+            <label>출발지
+              <select id="departure"></select>
+            </label>
+            <label>인원
+              <input id="travelers" type="number" min="1" max="10" value="2" inputmode="numeric">
+            </label>
+            <label>예산 스타일
+              <select id="budget"></select>
+            </label>
+            <label>출발일
+              <input id="startDate" type="date" aria-describedby="startDateHint">
+              <span class="hint" id="startDateHint">2주 이내면 날씨 예보를 반영해요</span>
+            </label>
+          </div>
+        </details>
+
+        <button class="spin" id="spinBtn" type="submit">
+          <svg class="ico" aria-hidden="true"><use href="#i-dart"/></svg>
+          <span>다트 던지기</span>
+        </button>
+      </form>
+      <figure class="map-wrap" id="mapWrap">
+        <div class="map" id="map" role="img" aria-label="다트를 던질 지도"></div>
+        <figcaption class="map-legend" id="mapLegend"></figcaption>
+      </figure>
     </section>
 
-    <section class="result hidden" id="result"></section>
+    <section class="stage hidden" id="stage" aria-live="polite">
+      <div class="draw">
+        <p class="slot" id="slot">다트를 던지는 중</p>
+        <p class="slot-sub" id="slotSub">기간에 맞는 거리 안의 육지를 노리고 있어요</p>
+        <p class="slot-pitch hidden" id="slotPitch"></p>
+      </div>
+      <div class="progress">
+        <ol class="steps" id="steps"></ol>
+        <p class="elapsed" id="elapsed"></p>
+      </div>
+      <p class="error hidden" id="error" role="alert"></p>
+    </section>
 
-    <footer class="foot">
-      Google ADK Workflow · Gemini · Google Search · Open-Meteo<br>
-      AI가 만든 일정이에요. 영업시간·요금은 방문 전에 꼭 확인하세요.
-    </footer>
+    <section class="result hidden" id="result" aria-label="여행 일정"></section>
   </main>
-  <script src="/static/app.js"></script>
+
+  <div class="actionbar hidden" id="actionbar">
+    <button class="btn primary" type="button" data-action="reroll">
+      <svg class="ico" aria-hidden="true"><use href="#i-refresh"/></svg><span>다른 곳으로 다시</span>
+    </button>
+    <button class="btn" type="button" data-action="copy">
+      <svg class="ico" aria-hidden="true"><use href="#i-link"/></svg><span>링크 복사</span>
+    </button>
+  </div>
+
+  <footer class="foot">
+    <p>AI가 만든 일정이에요. 영업시간과 요금은 방문 전에 꼭 확인하세요.</p>
+    <p class="muted">Google ADK Workflow · Gemini · Google Search · Open-Meteo<br>
+      지도 · 주소 데이터 © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> 기여자 (지도 타일 · Nominatim 주소 검색)</p>
+  </footer>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js" crossorigin=""></script>
+  <script src="/static/app.js?v=12"></script>
 </body>
 </html>

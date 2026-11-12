@@ -1,8 +1,8 @@
 # 랜덤 여행 챌린지 (Random Trip Challenge)
 
-기간만 고르세요. 어디로 갈지는 룰렛이 정합니다.
+기간만 고르세요. 어디로 갈지는 지도에 던진 다트가 정합니다.
 
-`당일치기` · `1박 2일` · `2박 3일` … 기간을 고르면 출발지에서 현실적으로 다녀올 수 있는 국내 여행지 한 곳을 무작위로 뽑고 AI 에이전트들이 실시간 검색으로 명소·맛집·교통을 조사해 시간대별 일정과 항목별 예산까지 만들어 줍니다.
+`당일치기` · `1박 2일` · `2박 3일` … 기간을 고르면 출발지에서 그 기간에 다녀올 수 있는 거리 안의 지도에 다트를 던집니다. 정해진 관광지 목록 없이 육지 어디에나 꽂힐 수 있고, 꽂힌 읍·면·동을 중심으로 AI 에이전트들이 실시간 검색으로 명소·맛집·교통을 조사해 시간대별 일정과 항목별 예산까지 만들어 줍니다.
 
 Google ADK 2.x의 Workflow(그래프 기반 오케스트레이션)와 Gemini, Google 검색 그라운딩으로 만들었습니다.
 
@@ -12,12 +12,12 @@ Google ADK 2.x의 Workflow(그래프 기반 오케스트레이션)와 Gemini, Go
 
 | 기능 | 설명 |
 |---|---|
-| 랜덤 추첨 | 추첨은 LLM이 아니라 코드가 합니다. 출발지와의 거리·기간·섬 접근성(제주 항공, 울릉도 배편)을 따져 갈 수 있는 곳만 후보로 남기고 가중치 랜덤으로 뽑습니다. |
+| 지도에 다트 던지기 | 출발지 기준으로 기간별 거리 범위(당일치기 20~130km, 1박 2일 40~300km, 2박 3일 60~450km, 3박 이상은 80km 밖 전국) 안에서 면적이 고르게 좌표를 뽑습니다. OpenStreetMap 주소 검색으로 그 좌표의 읍·면·동을 찾고, 바다·북한·민간인 통제구역에 떨어지면 다시 던집니다. |
 | 병렬 리서치 | 명소 / 맛집 / 교통·숙박 리서처 3명이 동시에 Google 검색을 하고 출처 링크를 모아 보여 줍니다. |
 | 검수 루프 | 일정 작성 → AI 검수자가 동선·식사·이동 시간을 점검 → 문제가 있으면 수정 에이전트가 고칩니다. 일차 수 같은 필수 조건은 코드로 한 번 더 검사합니다. |
 | 예산 계산 | LLM은 항목별 단가와 수량만 추정하고 합계·예비비(10%)·1인당 금액은 파이썬이 계산합니다. 암산 실수가 없습니다. |
 | 날씨 반영 | 출발일이 2주 이내면 [Open-Meteo](https://open-meteo.com/) 예보를 가져와 비 오는 날은 실내 일정을 늘립니다. |
-| 다시 돌리기 | 마음에 안 들면 이번 여행지를 빼고 다시 추첨합니다. |
+| 다시 던지기 | 마음에 안 들면 이번 동네를 빼고 다시 던집니다. |
 | 공유 링크 | 결과는 세션 DB에 저장되어 `?id=...` 링크로 다시 볼 수 있습니다. |
 
 ---
@@ -28,7 +28,7 @@ ADK 2.x에서 `SequentialAgent` / `ParallelAgent` / `LoopAgent`가 `Workflow`로
 
 ```mermaid
 flowchart TD
-    S([START]) --> A[setup_challenge<br/><i>코드: 조건 파싱 · 랜덤 추첨 · 날씨</i>]
+    S([START]) --> A[setup_challenge<br/><i>코드: 조건 파싱 · 다트 던지기 · 날씨</i>]
     A --> R1[spot_researcher<br/>명소 검색]
     A --> R2[food_researcher<br/>맛집 검색]
     A --> R3[logistics_researcher<br/>교통·숙박 검색]
@@ -48,7 +48,7 @@ flowchart TD
 
 ### 설계 원칙
 
-- 추첨, 합산, 필수 조건 검사, 결과 조립은 결정적인 코드가 맡고 검색·요약·일정 구성·검수만 LLM에게 맡깁니다.
+- 다트 던지기(좌표 추출·주소 확인), 합산, 필수 조건 검사, 결과 조립은 결정적인 코드가 맡고 검색·요약·일정 구성·검수만 LLM에게 맡깁니다.
 - 일정·검수·예산은 모두 Pydantic `output_schema`로 구조화된 JSON을 받아 UI가 그대로 렌더링합니다.
 - 모든 LLM 노드는 `include_contents="none"`으로 대화 기록을 받지 않고 Instruction Provider 함수가 세션 state에서 필요한 정보만 골라 프롬프트를 만듭니다.
 - 동선은 코드로 검사합니다. LLM 검수자는 "남부 → 시내 → 남서부 → 시내" 같은 왕복 동선을 자주 놓칩니다. 플래너가 활동마다 권역(`area`)을 적고, 코드가 일자별 권역 순서를 뽑아 왕복을 찾아냅니다([`routes.py`](travel_roulette/routes.py)). 결과는 게이트 판정과 검수 프롬프트에 함께 쓰입니다.
@@ -74,7 +74,7 @@ cp .env.example .env   # GOOGLE_API_KEY 입력
 uvicorn server.main:app --reload
 ```
 
-http://localhost:8000 에서 기간을 고르고 "룰렛 돌리기"를 누릅니다.
+http://localhost:8000 에서 기간을 고르고 "다트 던지기"를 누릅니다.
 
 ### ADK 개발 UI (에이전트 디버깅용)
 
@@ -114,8 +114,7 @@ curl -N -X POST localhost:8000/api/challenges \
 
 ```
 {"type":"session","id":"..."}
-{"type":"stage","stage":"draw","label":"여행지 추첨"}
-{"type":"challenge","challenge":{"destination":{"name":"강릉",...},...}}   ← 룰렛 결과가 먼저 도착
+{"type":"challenge","challenge":{"destination":{"name":"영양군 영양읍","lat":36.66,"lon":129.11,...},"misses":[...],...}}   ← 다트 결과가 먼저 도착
 {"type":"stage","stage":"research",...}
 {"type":"stage","stage":"plan",...} … {"type":"stage","stage":"done",...}
 {"type":"result","id":"...","plan":{challenge, itinerary, budget, weather, sources, review}}
@@ -208,7 +207,7 @@ INFO travel_roulette.metrics run_metrics {"duration_s": 41.3, "llm_calls": 8, "t
 ```
 travel_roulette/          ADK 앱 패키지 (adk web이 인식)
 ├── agent.py              Workflow 그래프와 노드 정의 (root_agent, app)
-├── destinations.py       국내 여행지 46곳 · 출발지 6곳 · 랜덤 추첨 로직
+├── dart.py               지도에 다트 던지기 (거리 범위 샘플링 · 육지 판정 · Nominatim 주소 검색)
 ├── request_parser.py     채팅 메시지 → 여행 조건 파싱 (TripRequest)
 ├── prompts.py            에이전트 지시문 (Instruction Provider)
 ├── schemas.py            일정 · 검수 · 예산 구조화 출력 스키마
@@ -232,7 +231,7 @@ legacy/                   Kaggle 캡스톤 원본 코드 (2025)
 
 | | 2025 캡스톤 | 지금 |
 |---|---|---|
-| 콘셉트 | 도시를 직접 입력하는 여행 플래너 | 기간만 고르면 국내 여행지를 랜덤 추첨 |
+| 콘셉트 | 도시를 직접 입력하는 여행 플래너 | 기간만 고르면 지도에 다트를 던져 꽂힌 동네로 |
 | 오케스트레이션 | 코디네이터 LLM이 `AgentTool`로 순서대로 호출 | ADK 2.x Workflow 그래프 (병렬·조건 분기·루프) |
 | 리서치 | 에이전트 1개 | 명소·맛집·교통 3개 병렬 + 출처 수집 |
 | 품질 관리 | 없음 | 검수 → 수정 루프 + 코드 기반 필수 조건 검사 |
@@ -248,6 +247,13 @@ legacy/                   Kaggle 캡스톤 원본 코드 (2025)
 - AI가 만든 일정이라 영업시간·요금·휴무일은 방문 전에 확인이 필요합니다.
 - 예산은 검색 결과와 가이드라인 기반 추정치입니다.
 - 거리 판단은 직선거리 기준이라 실제 이동 시간과 다를 수 있습니다(교통 리서처가 실제 소요 시간을 조사해 보완합니다).
+- 바다를 빠르게 거르는 육지 윤곽은 손으로 그린 근사치라, 윤곽 밖의 작은 섬에는 다트가 꽂히지 않습니다. 민간인 통제구역 경계도 근사치입니다.
+- 주소 검색은 공용 OpenStreetMap Nominatim을 씁니다. 초당 1회 제한이 있어 서버 전체에서 순서대로 호출하며, 많은 사용자를 받으려면 자체 Nominatim 서버(`TRAVEL_NOMINATIM_URL`)가 필요합니다.
+
+## 데이터 출처
+
+- 지도와 주소: © [OpenStreetMap](https://www.openstreetmap.org/copyright) 기여자 (ODbL). 지도 타일과 [Nominatim](https://nominatim.org/) 주소 검색을 이용합니다.
+- 날씨: [Open-Meteo](https://open-meteo.com/)
 
 ---
 

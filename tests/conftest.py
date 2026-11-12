@@ -5,6 +5,7 @@ import pytest
 from google.adk.agents import LlmAgent
 
 from travel_roulette import agent as travel_agent
+from travel_roulette import dart
 
 from fake_llm import FakeLlm
 
@@ -27,4 +28,19 @@ def fake_llm(monkeypatch):
     return None
 
   monkeypatch.setattr(travel_agent, "fetch_forecast", no_weather)
+  monkeypatch.setattr(dart, "reverse_geocode", fake_geocoder)
   return llm
+
+
+async def fake_geocoder(lat: float, lon: float):
+  """네트워크 없이 Nominatim 응답을 흉내 낸다: 육지 윤곽 안이면 가짜 읍, 밖이면 바다."""
+  if not dart.maybe_land(lat, lon):
+    return None
+  return {"address": {"country_code": "kr", "province": "경상북도", "county": "테스트군",
+                      "town": f"다트{lat:.3f}읍"}}
+
+
+@pytest.fixture
+def fake_geo(monkeypatch):
+  monkeypatch.setattr(dart, "reverse_geocode", fake_geocoder)
+  return fake_geocoder

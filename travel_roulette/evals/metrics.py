@@ -38,7 +38,7 @@ def check_plan(user_text: str, response: str) -> dict[str, bool]:
       "일차 수 일치": day_numbers == list(range(1, req.days + 1)),
       "출발지 반영": f"{req.departure} 출발" in response,
       "인원 반영": f"{req.travelers}명" in response,
-      "매일 식사 포함": bool(day_sections) and all("🍽️" in s for s in day_sections),
+      "매일 식사 포함": bool(day_sections) and all("[식사]" in s for s in day_sections),
       "예산 합계 표시": "**합계**" in response and "1인당" in response,
       "한국어 응답": hangul / letters > 0.5,
   }

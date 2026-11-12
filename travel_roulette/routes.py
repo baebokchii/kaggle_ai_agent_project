@@ -58,6 +58,6 @@ def route_summary(itinerary: dict[str, Any]) -> str:
   for day in itinerary.get("days") or []:
     seq = area_sequence(day)
     back = backtracks(seq)
-    mark = f"  ⚠️ 왕복: {', '.join(dict.fromkeys(back))}" if back else ""
+    mark = f"  (왕복: {', '.join(dict.fromkeys(back))})" if back else ""
     lines.append(f"Day {day.get('day')}: {' → '.join(seq) or '(정보 없음)'}{mark}")
   return "\n".join(lines) or "(일정 없음)"

@@ -8,3 +8,4 @@ legacy
 .pytest_cache
 .claude
 Certificate.png
+docs

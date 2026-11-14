@@ -336,7 +336,7 @@ body.has-result .setup h1 { margin-bottom: var(--s4); }
   padding: var(--s6); display: grid; gap: var(--s5);
 }
 .trip-head h2 { font-weight: 800; letter-spacing: -0.035em; font-size: clamp(34px, 5vw, 54px); line-height: 1.15; margin: 0; color: var(--accent); text-shadow: 1px 1px 0 var(--accent-soft), 2px 2px 0 var(--accent-soft), 3px 3px 0 color-mix(in srgb, var(--accent) 35%, var(--surface)); }
-.trip-head .province { display: block; font-family: var(--sans); font-size: 15px; font-weight: 600; letter-spacing: -0.01em; color: var(--muted); margin-top: var(--s2); }
+.trip-head .province { display: block; font-family: var(--sans); font-size: 15px; font-weight: 600; letter-spacing: -0.01em; color: var(--muted); margin-top: var(--s2); text-shadow: none; }
 .trip-head .pitch { margin: var(--s2) 0 0; opacity: .85; }
 .maplink { display: inline-flex; align-items: center; gap: 6px; margin-top: var(--s3); color: var(--accent); font-weight: 600; text-decoration: none; font-size: 14px; }
 .maplink:hover { text-decoration: underline; }

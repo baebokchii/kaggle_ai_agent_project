@@ -87,6 +87,7 @@ async function init() {
     $(id).addEventListener("change", updateOptSummary);
   $("#departure").addEventListener("change", drawRange);
   updateOptSummary();
+  $("#heroDart")?.insertAdjacentHTML("beforeend", DART_PARTS);
   initMap();
 
   $("#setupForm").addEventListener("submit", (e) => { e.preventDefault(); start([]); });
@@ -108,20 +109,25 @@ function selectNights(n) {
 
 // ---------------------------------------------------------------- 지도
 const geo = { map: null, range: null, darts: null, view: null };
-// 다트: 끝(촉)이 (6, 58)에 오도록 그린 64×64 그림. 촉 기준으로 지도에 꽂힌다.
+// 다트: 끝(촉)이 (6, 58)에 오도록 그린 64×64 그림을 DART_PX 크기로 보여 준다. 촉 기준으로 지도에 꽂힌다.
+// 색(그라디언트)은 index.html의 <defs>에 있다.
+const DART_PX = 104;
+const DART_TIP = [(6 * DART_PX) / 64, (58 * DART_PX) / 64];
+const DART_PARTS =
+  '<path d="M0 0 L14.5 -2.7 Q16 0 14.5 2.7 Z" fill="url(#dart-tip)"/>' +
+  '<rect x="13.6" y="-3.6" width="3.4" height="7.2" rx="1.7" fill="url(#dart-collar)"/>' +
+  '<rect x="16" y="-4.6" width="21" height="9.2" rx="4.6" fill="url(#dart-barrel)"/>' +
+  '<path d="M20 -2.7 H33" stroke="#fff" stroke-opacity=".5" stroke-width="1.3" stroke-linecap="round"/>' +
+  '<rect x="36" y="-2" width="9" height="4" rx="2" fill="url(#dart-barrel)"/>' +
+  '<path d="M42 0 C44 -10 50 -18 57.5 -17 C64 -16 63.5 -6 58 0 Z" fill="url(#dart-wing-a)"/>' +
+  '<path d="M42 0 C44 10 50 18 57.5 17 C64 16 63.5 6 58 0 Z" fill="url(#dart-wing-b)"/>' +
+  '<path d="M42 0 H58.5" stroke="#1557c0" stroke-opacity=".55" stroke-width="1.1" stroke-linecap="round"/>' +
+  '<path d="M47 -9 C50 -13.5 54 -15 57 -14.4" fill="none" stroke="#fff" stroke-opacity=".45" stroke-width="1.2" stroke-linecap="round"/>';
+const DART_BODY = `<g transform="translate(6 58) rotate(-50)">${DART_PARTS}</g>`;
 function dartSvg(withShadow) {
   return '<svg viewBox="0 0 64 64" aria-hidden="true">' +
-    (withShadow ? '<ellipse cx="11" cy="59" rx="8" ry="2.6" fill="rgba(20,14,6,.28)"/>' : "") +
-    '<g transform="translate(6 58) rotate(-50)">' +
-    '<path d="M0 0 L15 -1.5 L15 1.5 Z" fill="#a3a7ab"/>' +
-    '<path d="M2 0 L15 -0.6" stroke="#fff" stroke-opacity=".55" stroke-width=".7"/>' +
-    '<rect x="14" y="-3.5" width="17" height="7" rx="3.5" fill="var(--ink)"/>' +
-    '<path d="M18.5 -3.3v6.6M21.5 -3.5v7M24.5 -3.5v7M27.5 -3.3v6.6" stroke="var(--surface)" stroke-opacity=".3" stroke-width="1"/>' +
-    '<rect x="30" y="-1.25" width="11" height="2.5" rx="1.25" fill="var(--ink-2)"/>' +
-    '<path d="M38 0 L57 -12 L53 -1.2 Z" fill="var(--accent)"/>' +
-    '<path d="M38 0 L57 12 L53 1.2 Z" fill="color-mix(in srgb, var(--accent) 68%, #000)"/>' +
-    '<path d="M38 0 L57 -12" stroke="color-mix(in srgb, var(--accent) 60%, #fff)" stroke-width=".8"/>' +
-    "</g></svg>";
+    (withShadow ? '<ellipse cx="12" cy="59.5" rx="9" ry="2.8" fill="rgba(25,31,40,.26)"/>' : "") +
+    DART_BODY + "</svg>";
 }
 
 function initMap() {
@@ -130,10 +136,12 @@ function initMap() {
     return;
   }
   geo.map = L.map("map", { scrollWheelZoom: false });
-  // OSM 표준 타일: 키가 필요 없고, 출처 표시와 적은 사용량 조건으로 쓸 수 있다.
-  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom: 18,
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+  // OSM 프랑스의 Humanitarian(HOT) 타일: 표준 OSM보다 색이 부드럽고 지명이 한글로 나온다.
+  // 키가 필요 없고, 출처 표시와 적은 사용량이 조건이다. (CARTO·Stadia 등은 이제 API 키를 요구한다)
+  L.tileLayer("https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png", {
+    subdomains: "abc",
+    maxZoom: 19,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, Tiles style by <a href="https://www.hotosm.org/">HOT</a>, hosted by <a href="https://openstreetmap.fr/">OSM France</a>',
   }).addTo(geo.map);
   new ResizeObserver(() => {
     geo.map.invalidateSize();
@@ -157,7 +165,7 @@ function drawRange() {
   if (!geo.map || !dep) return;
   geo.range.clearLayers();
   const center = [dep.lat, dep.lon];
-  const accent = cssVar("--accent");
+  const accent = cssVar("--target");
   const ink = cssVar("--ink");
   let bounds = null;
   if (hi) {
@@ -178,11 +186,11 @@ function drawRange() {
 }
 
 function dartIcon() {
-  return L.divIcon({ className: "dart-icon", html: dartSvg(true), iconSize: [64, 64], iconAnchor: [6, 58] });
+  return L.divIcon({ className: "dart-icon", html: dartSvg(true), iconSize: [DART_PX, DART_PX], iconAnchor: DART_TIP });
 }
 
 // ---- 던지기 연출: 조준 → 비행 → 충돌 ----
-const fx = { layer: null, reticle: null, raf: 0, pos: { x: 0, y: 0 } };
+const fx = { layer: null, reticle: null, raf: 0, pos: { x: 0, y: 0 }, throwId: 0 };
 const EASE_OUT = "cubic-bezier(.16, .84, .24, 1)";
 
 function fxLayer() {
@@ -191,6 +199,13 @@ function fxLayer() {
     geo.map.getContainer().append(fx.layer);
   }
   return fx.layer;
+}
+
+// 연출용 다트는 지도 좌표가 아니라 화면 좌표에 떠 있어서, 남아 있으면 지도가 움직인 뒤
+// 엉뚱한 자리에 두 번째 다트로 보인다. 새로 던지거나 결과를 찍기 전에 조준경만 남기고 지운다.
+function clearFx() {
+  if (!fx.layer) return;
+  for (const node of [...fx.layer.children]) if (node !== fx.reticle) node.remove();
 }
 
 function place(node, p) {
@@ -225,6 +240,83 @@ function stopAiming() {
   fx.reticle = null;
 }
 
+// 꽂힌 다트의 촉이 가리키는 화면 방향(도, 시계 방향). dartSvg의 rotate(-50)과 짝을 이룬다.
+const TIP_ANGLE = 130;
+const FLIGHT_MS = 540;
+const TRAIL_SEGMENTS = 9;
+
+// 오른쪽 아래에서 포물선을 그리며 날아와, 꽂힌 자세 그대로 과녁에 닿는다.
+// 좌표는 모두 과녁 p를 원점으로 한 상대값이고, 다트는 진행 방향(접선)을 따라 기운다.
+function flyDart(dartEl, shadow, layer, p, { w, h }) {
+  const start = { x: Math.max(240, w - p.x + 70), y: Math.max(110, (h - p.y) * 0.6 + 50) };
+  const dist = Math.hypot(start.x, start.y);
+  const rad = (TIP_ANGLE * Math.PI) / 180;
+  // 끝 접선이 촉 방향과 같아지도록 제어점을 촉 반대편에 둔다. 지도 위로 너무 솟지 않게 제한.
+  const reach = Math.min(dist * 0.5, (p.y + 30) / Math.sin(rad));
+  const ctrl = { x: -Math.cos(rad) * reach, y: -Math.sin(rad) * reach };
+  const at = (t) => ({
+    x: (1 - t) * (1 - t) * start.x + 2 * t * (1 - t) * ctrl.x,
+    y: (1 - t) * (1 - t) * start.y + 2 * t * (1 - t) * ctrl.y,
+  });
+  const tilt = (t) => {
+    const dx = (1 - t) * (ctrl.x - start.x) - t * ctrl.x;
+    const dy = (1 - t) * (ctrl.y - start.y) - t * ctrl.y;
+    const deg = (((Math.atan2(dy, dx) * 180) / Math.PI - TIP_ANGLE) % 360 + 360) % 360;
+    return deg > 180 ? deg - 360 : deg;
+  };
+
+  const trail = document.createElementNS(SVG_NS, "svg");
+  trail.setAttribute("class", "fx-trail");
+  const segs = Array.from({ length: TRAIL_SEGMENTS }, (_, i) => {
+    const line = document.createElementNS(SVG_NS, "line");
+    const k = (i + 1) / TRAIL_SEGMENTS;
+    line.setAttribute("stroke-opacity", (k * k * 0.55).toFixed(3));
+    line.setAttribute("stroke-width", (1 + k * 3).toFixed(2));
+    trail.append(line);
+    return line;
+  });
+  layer.insertBefore(trail, shadow);
+
+  return new Promise((resolve) => {
+    const t0 = performance.now();
+    const frame = (now) => {
+      const k = Math.min(1, Math.max(0, (now - t0) / FLIGHT_MS)); // rAF 시각이 t0보다 이를 수 있다
+      const t = Math.pow(k, 1.25); // 손을 떠나며 붙는 가속
+      const pos = at(t);
+      const scale = 1.6 - 0.6 * t;
+      dartEl.style.opacity = String(Math.min(1, k / 0.15));
+      dartEl.style.transform = `translate(${pos.x}px, ${pos.y}px) rotate(${tilt(t)}deg) scale(${scale})`;
+      // 그림자는 포물선 아래 직선 경로(바닥)를 따라오다 촉 밑에서 만난다
+      shadow.style.opacity = String(t * t);
+      shadow.style.transform = `translate(${start.x * (1 - t)}px, ${start.y * (1 - t)}px) scale(${1 + 1.5 * (1 - t)})`;
+      const tail = Math.max(0, t - 0.34);
+      segs.forEach((line, i) => {
+        const a = at(tail + ((t - tail) * i) / TRAIL_SEGMENTS);
+        const b = at(tail + ((t - tail) * (i + 1)) / TRAIL_SEGMENTS);
+        line.setAttribute("x1", p.x + a.x); line.setAttribute("y1", p.y + a.y);
+        line.setAttribute("x2", p.x + b.x); line.setAttribute("y2", p.y + b.y);
+      });
+      if (k < 1) raf = requestAnimationFrame(frame);
+      else finish();
+    };
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      cancelAnimationFrame(raf);
+      dartEl.style.opacity = "1";
+      dartEl.style.transform = "";
+      shadow.style.opacity = "1";
+      shadow.style.transform = "";
+      trail.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 200, fill: "forwards" }).finished.then(() => trail.remove());
+      resolve();
+    };
+    let raf = requestAnimationFrame(frame);
+    // 탭이 가려져 프레임이 멈춰도 일정이 다트를 기다리다 멎지 않게 한다
+    setTimeout(finish, FLIGHT_MS + 250);
+  });
+}
+
 async function throwOne(latlng, hit, label) {
   const p = geo.map.latLngToContainerPoint(latlng);
   if (fx.reticle) {
@@ -243,24 +335,28 @@ async function throwOne(latlng, hit, label) {
   dartEl.innerHTML = dartSvg(false);
   layer.append(shadow, dartEl);
 
-  // 화면 오른쪽 아래(던지는 사람 쪽)에서 크게 날아와 작아지며 꽂힌다
-  const from = { x: w - p.x + 90, y: h - p.y + 140 };
-  shadow.animate([{ transform: "scale(2.6)", opacity: 0 }, { transform: "scale(1)", opacity: 1 }],
-    { duration: 560, easing: EASE_OUT, fill: "forwards" });
-  await dartEl.animate([
-    { transform: `translate(${from.x}px, ${from.y}px) rotate(22deg) scale(3)`, opacity: 0 },
-    { opacity: 1, offset: 0.2 },
-    { transform: "translate(0, 0) rotate(0deg) scale(1)", opacity: 1 },
-  ], { duration: 560, easing: EASE_OUT, fill: "forwards" }).finished;
+  await flyDart(dartEl, shadow, layer, p, { w, h });
 
-  // 충돌: 파문, 진동, (명중이면) 지도 흔들림
+  // 충돌: 파문, 파편, 박히며 떨리는 진동, (명중이면) 지도 흔들림
   const ring = place(el("div", { class: `fx-ring${hit ? "" : " miss"}` }), p);
   layer.append(ring);
-  ring.animate([{ transform: "scale(.3)", opacity: 0.95 }, { transform: `scale(${hit ? 5.5 : 3.2})`, opacity: 0 }],
+  ring.animate([{ transform: "scale(.3, .17)", opacity: 0.95 }, { transform: `scale(${hit ? 5.5 : 3.2}, ${hit ? 3.2 : 1.85})`, opacity: 0 }],
     { duration: hit ? 800 : 560, easing: "cubic-bezier(.1, .7, .2, 1)" }).finished.then(() => ring.remove());
+  const sparks = hit ? 8 : 5;
+  for (let i = 0; i < sparks; i++) {
+    const a = (i / sparks) * 360 + Math.random() * 28;
+    const far = (hit ? 24 : 14) + Math.random() * 14;
+    const spark = place(el("div", { class: `fx-spark${hit ? "" : " miss"}` }), p);
+    layer.append(spark);
+    spark.animate([
+      { transform: `rotate(${a}deg) translateX(5px) scaleX(1)`, opacity: 1 },
+      { transform: `rotate(${a}deg) translateX(${far}px) scaleX(.2)`, opacity: 0 },
+    ], { duration: 300 + Math.random() * 160, easing: EASE_OUT }).finished.then(() => spark.remove());
+  }
+  // 첫 프레임은 날아오던 방향으로 살짝 더 파고든 뒤, 촉을 축으로 떨림이 잦아든다
   dartEl.animate(
-    [0, -9, 7, -4.5, 2.5, -1, 0].map((deg) => ({ transform: `rotate(${deg}deg)` })),
-    { duration: 620, easing: "ease-out" });
+    [0, -11, 8, -5, 3, -1.2, 0].map((deg, i) => ({ transform: `${i ? "" : "translate(-2.6px, 3.1px) "}rotate(${deg}deg)` })),
+    { duration: 680, easing: "ease-out" });
   if (hit) {
     $("#mapWrap").animate(
       [[0, 0], [-4, 3], [4, -2], [-3, 1], [2, -1], [0, 0]].map(([x, y]) => ({ transform: `translate(${x}px, ${y}px)` })),
@@ -270,7 +366,7 @@ async function throwOne(latlng, hit, label) {
 
   const tag = place(el("div", { class: "fx-label", text: label }), p);
   layer.append(tag);
-  tag.animate([{ opacity: 0, transform: "translate(-50%, -56px)" }, { opacity: 1, transform: "translate(-50%, -68px)" }],
+  tag.animate([{ opacity: 0, transform: "translate(-50%, -90px)" }, { opacity: 1, transform: "translate(-50%, -104px)" }],
     { duration: 220, easing: EASE_OUT, fill: "forwards" });
   await sleep(520);
   await Promise.all([
@@ -287,7 +383,10 @@ const MISS_LABEL = { "빈 땅": "빗나감", 국외: "국경 밖", "이미 나�
 
 async function animateThrow(ch) {
   if (!geo.map) return;
+  const id = ++fx.throwId; // 이 던지기가 끝나기 전에 다른 던지기·결과 표시가 시작되면 물러난다
+  const stale = () => id !== fx.throwId;
   geo.darts.clearLayers();
+  clearFx();
   const d = ch.destination;
   const target = L.latLng(d.lat, d.lon);
   if (reducedMotion()) {
@@ -297,18 +396,26 @@ async function animateThrow(ch) {
   }
   const view = geo.map.getBounds();
   const misses = (ch.misses || []).filter((m) => view.contains([m.lat, m.lon])).slice(0, 4);
-  for (const m of misses) await throwOne(L.latLng(m.lat, m.lon), false, MISS_LABEL[m.reason] || "다시");
-  const hit = await throwOne(target, true);
+  for (const m of misses) {
+    await throwOne(L.latLng(m.lat, m.lon), false, MISS_LABEL[m.reason] || "다시");
+    if (stale()) return;
+  }
+  await throwOne(target, true);
+  if (stale()) return;
   stopAiming();
   await sleep(700);
+  if (stale()) return;
+  // 화면에 떠 있던 연출용 다트를 모두 걷어 내고, 지도에 붙는 다트 하나만 남긴다
+  clearFx();
+  geo.darts.clearLayers();
   L.marker(target, { icon: dartIcon(), interactive: false }).addTo(geo.darts);
-  hit?.dartEl.remove();
-  hit?.shadow.remove();
   geo.map.flyTo(target, 10, { duration: 1.8, easeLinearity: 0.2 });
 }
 
 function showLanding(ch) {
   if (!geo.map) return;
+  fx.throwId++;
+  clearFx();
   geo.darts.clearLayers();
   const d = ch.destination;
   L.marker([d.lat, d.lon], { icon: dartIcon(), interactive: false }).addTo(geo.darts);
@@ -364,7 +471,7 @@ async function start(exclude) {
   slot.textContent = "다트를 던지는 중";
   slot.className = "slot spinning";
   $("#slotSub").textContent = "기간에 맞는 거리 안의 육지를 노리고 있어요";
-  if (geo.map) { geo.darts.clearLayers(); drawRange(); startAiming(); }
+  if (geo.map) { fx.throwId++; clearFx(); geo.darts.clearLayers(); drawRange(); startAiming(); }
   $("#setup").scrollIntoView({ behavior: "smooth", block: "start" });
 
   try {
@@ -682,7 +789,7 @@ function onAction(e) {
 function reset() {
   history.replaceState(null, "", location.pathname);
   document.body.classList.remove("has-result");
-  if (geo.map) { geo.darts.clearLayers(); geo.map.invalidateSize(); drawRange(); }
+  if (geo.map) { fx.throwId++; clearFx(); geo.darts.clearLayers(); geo.map.invalidateSize(); drawRange(); }
   $("#result").classList.add("hidden");
   $("#actionbar").classList.add("hidden");
   $("#stage").classList.add("hidden");

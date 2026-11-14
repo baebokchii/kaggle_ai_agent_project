@@ -2,7 +2,7 @@
 
 기간만 고르세요. 어디로 갈지는 지도에 던진 다트가 정합니다.
 
-`당일치기` · `1박 2일` · `2박 3일` … 기간을 고르면 출발지에서 그 기간에 다녀올 수 있는 거리 안에서 지도에 다트를 던집니다. 정해진 관광지 목록 없이 육지 어디에나 꽂힐 수 있습니다. 꽂힌 읍·면·동을 중심으로 AI 에이전트들이 실시간 검색으로 명소·맛집·교통을 조사해 시간대별 일정과 항목별 예산까지 만들어 줍니다.
+`당일치기`, `1박 2일`, `2박 3일` … 기간을 고르면 출발지에서 그 기간에 다녀올 수 있는 거리 안에서 지도에 다트를 던집니다. 정해진 관광지 목록 없이 육지 어디에나 꽂힐 수 있습니다. 꽂힌 읍, 면, 동을 중심으로 AI 에이전트들이 실시간 검색으로 명소, 맛집, 교통을 조사해 시간대별 일정과 항목별 예산까지 만들어 줍니다.
 
 Google ADK 2.x의 Workflow(그래프 기반 오케스트레이션)와 Gemini, Google 검색 그라운딩으로 만들었습니다.
 
@@ -19,7 +19,7 @@ Google ADK 2.x의 Workflow(그래프 기반 오케스트레이션)와 Gemini, Go
 
 | 3. 꽂힌 동네를 바로 확인 | 4. 일정을 짜는 동안 찾은 곳부터 |
 |---|---|
-| ![꽂힌 동네 이름과 일정 짜기 제안](docs/screenshots/03-landed.webp) | ![단계 표시와 리서치가 찾은 명소·맛집](docs/screenshots/04-planning.webp) |
+| ![꽂힌 동네 이름과 일정 짜기 제안](docs/screenshots/03-landed.webp) | ![단계 표시와 리서치가 찾은 명소, 맛집](docs/screenshots/04-planning.webp) |
 | 마음에 들면 일정을 짤 수 있고, 아니면 다시 던질 수 있습니다. 다시 던지는 동안에는 LLM을 부르지 않습니다. | 리서치가 끝나는 대로 명소와 맛집이 먼저 뜨게 하여 이탈을 막습니다. 창을 닫아도 뒤에서 계속 돌아갑니다. |
 
 **5. 완성된 일정과 예산**
@@ -32,10 +32,10 @@ Google ADK 2.x의 Workflow(그래프 기반 오케스트레이션)와 Gemini, Go
 
 | 기능 | 설명 |
 |---|---|
-| 지도에 다트 던지기 | 출발지 기준으로 기간별 거리 범위(당일치기 20 ~ 130km, 1박 2일 40 ~ 300km, 2박 3일 60 ~ 450km, 3박 이상은 80km 밖 전국) 안에서 면적이 고르게 좌표를 뽑습니다. OpenStreetMap 주소 검색으로 그 좌표의 읍·면·동을 찾습니다. 바다·북한·민간인 통제구역에 떨어지면 다시 던집니다. |
-| 병렬 리서치 | 명소 / 맛집 / 교통·숙박 리서처 3명이 동시에 Google 검색을 하고 출처 링크를 모아 보여 줍니다. |
-| 검수 루프 | 일정 작성 → AI 검수자가 동선·식사·이동 시간을 점검 → 문제가 있으면 수정 에이전트가 고칩니다. |
-| 예산 계산 | LLM은 항목별 단가와 수량만 추정하고 합계·예비비(10%)·1인당 금액은 파이썬이 계산합니다. |
+| 지도에 다트 던지기 | 출발지 기준으로 기간별 거리 범위(당일치기 20 ~ 130km, 1박 2일 40 ~ 300km, 2박 3일 60 ~ 450km, 3박 이상은 80km 밖 전국) 안에서 면적이 고르게 좌표를 뽑습니다. OpenStreetMap 주소 검색으로 그 좌표의 읍, 면, 동을 찾습니다. 바다, 북한, 민간인 통제구역에 떨어지면 다시 던집니다. |
+| 병렬 리서치 | 명소 / 맛집 / 교통, 숙박 리서처 3명이 동시에 Google 검색을 하고 출처 링크를 모아 보여 줍니다. |
+| 검수 루프 | 일정 작성 → AI 검수자가 동선, 식사, 이동 시간을 점검 → 문제가 있으면 수정 에이전트가 고칩니다. |
+| 예산 계산 | LLM은 항목별 단가와 수량만 추정하고 합계, 예비비(10%), 1인당 금액은 파이썬이 계산합니다. |
 | 날씨 반영 | 출발일이 2주 이내면 [Open-Meteo](https://open-meteo.com/) 예보를 가져와 비 오는 날은 실내 일정을 늘립니다. |
 | 다시 던지기 | 마음에 안 들면 이번 동네를 빼고 다시 던집니다. |
 | 공유 링크 | 결과는 세션 DB에 저장되어 `?id=...` 링크로 다시 볼 수 있습니다. |
@@ -44,24 +44,24 @@ Google ADK 2.x의 Workflow(그래프 기반 오케스트레이션)와 Gemini, Go
 
 ## 아키텍처
 
-ADK 2.x에서 `SequentialAgent` / `ParallelAgent` / `LoopAgent`가 `Workflow`로 대체되면서 파이프라인 전체를 하나의 그래프로 선언합니다. LLM 노드와 일반 파이썬 함수 노드가 섞여 있고 병렬 분기(fan-out)·합류(JoinNode)·조건부 라우팅·사이클(검수 루프)을 모두 씁니다.
+ADK 2.x에서 `SequentialAgent` / `ParallelAgent` / `LoopAgent`가 `Workflow`로 대체되면서 파이프라인 전체를 하나의 그래프로 선언합니다. LLM 노드와 일반 파이썬 함수 노드가 섞여 있고 병렬 분기(fan-out), 합류(JoinNode), 조건부 라우팅, 사이클(검수 루프)을 모두 씁니다.
 
 ```mermaid
 flowchart TD
-    S([START]) --> A[setup_challenge<br/><i>코드: 조건 파싱 · 다트 던지기 · 날씨</i>]
+    S([START]) --> A[setup_challenge<br/><i>코드: 조건 파싱, 다트 던지기, 날씨</i>]
     A --> R1[spot_researcher<br/>명소 검색]
     A --> R2[food_researcher<br/>맛집 검색]
-    A --> R3[logistics_researcher<br/>교통·숙박 검색]
+    A --> R3[logistics_researcher<br/>교통, 숙박 검색]
     R1 & R2 & R3 --> J{{research_join}}
     J --> P0[prepare_planning<br/><i>코드: 출처 수집</i>]
     P0 --> P[itinerary_planner<br/>일정 초안 JSON]
     P --> C[itinerary_critic<br/>검수 JSON]
-    C --> G{review_gate<br/><i>코드: 일차 수 · 동선 왕복 검사</i>}
+    C --> G{review_gate<br/><i>코드: 일차 수, 동선 왕복 검사</i>}
     G -- revise --> V[itinerary_reviser<br/>일정 수정]
     V --> AR{after_revision<br/><i>코드: 수정 기회 확인</i>}
     AR -- recheck --> C
     AR -- done --> B
-    G -- approved --> B[budget_estimator<br/>단가·수량 추정]
+    G -- approved --> B[budget_estimator<br/>단가, 수량 추정]
     B --> BC[budget_calculator<br/><i>코드: 합계 계산</i>]
     BC --> O[present_plan<br/><i>코드: 결과 조립</i>]
 ```
@@ -119,14 +119,14 @@ adk web .
 
 | 메서드 | 경로 | 설명 |
 |---|---|---|
-| `GET` | `/api/meta` | 기간·출발지·예산 스타일 선택지와 여행지 목록 |
+| `GET` | `/api/meta` | 기간, 출발지, 예산 스타일 선택지와 여행지 목록 |
 | `POST` | `/api/darts` | 다트만 던집니다(LLM 호출 없음). 꽂힌 곳과 세션 ID를 return합니다 |
 | `POST` | `/api/challenges/{id}/plan` | 꽂힌 다트 ID로 일정을 짭니다. Server-Sent Events로 진행 상황을 스트리밍합니다. |
 | `POST` | `/api/challenges` | 던지기부터 일정까지 한 번에 (SSE) |
 | `GET` | `/api/challenges/{id}` | 꽂힌 곳과 일정을 조회합니다. (공유 링크용) |
 | `GET` | `/healthz` | 헬스 체크 |
 
-웹 화면은 두 단계로 움직입니다. 다트가 꽂히면 동네 이름·거리·날씨를 바로 보여 주고 "일정도 짜드릴까요?"를 묻습니다. 원할 때만 일정을 짜므로 다시 던지기만 반복하는 동안에는 LLM을 부르지 않습니다.
+웹 화면은 두 단계로 움직입니다. 다트가 꽂히면 동네 이름, 거리, 날씨를 바로 보여 주고 "일정도 짜드릴까요?"를 묻습니다. 원할 때만 일정을 짜므로 다시 던지기만 반복하는 동안에는 LLM을 부르지 않습니다.
 
 ```bash
 # 1) 다트 던지기
@@ -144,7 +144,7 @@ curl -N -X POST localhost:8000/api/challenges/<id>/plan
 ```
 {"type":"session","id":"..."}
 {"type":"stage","stage":"research",...}
-{"type":"found","kind":"food","items":[{"name":"...","note":"..."}]}    ← 리서치가 찾은 맛집·명소가 일정보다 먼저 도착
+{"type":"found","kind":"food","items":[{"name":"...","note":"..."}]}    ← 리서치가 찾은 맛집, 명소가 일정보다 먼저 도착
 {"type":"found","kind":"spots","items":[...]}
 {"type":"stage","stage":"plan",...} … {"type":"stage","stage":"done",...}
 {"type":"result","id":"...","plan":{challenge, itinerary, budget, weather, sources, review}}
@@ -204,7 +204,7 @@ PYTHONPATH=. adk eval travel_roulette travel_roulette/evals/challenge.evalset.js
 
 ## 관측성
 
-[`RunMetricsPlugin`](travel_roulette/observability.py)이 실행마다 에이전트별 LLM 호출 수·응답 시간·토큰과 노드별 완료 시점을 모아 JSON 한 줄로 로그를 남깁니다. 서버는 동시에 여러 요청을 처리하므로 실행(invocation)별로 따로 집계합니다. 웹 결과 화면에도 "AI 호출 N회 · M초"가 표시됩니다.
+[`RunMetricsPlugin`](travel_roulette/observability.py)이 실행마다 에이전트별 LLM 호출 수, 응답 시간, 토큰과 노드별 완료 시점을 모아 JSON 한 줄로 로그를 남깁니다. 서버는 동시에 여러 요청을 처리하므로 실행(invocation)별로 따로 집계합니다. 웹 결과 화면에도 "AI 호출 N회, M초"가 표시됩니다.
 
 로그 형식 (숫자는 예시):
 
@@ -225,13 +225,13 @@ INFO travel_roulette.metrics run_metrics {"duration_s": 41.3, "llm_calls": 8, "t
 | 버전 | 바꾼 것 | 평균 소요 | 평균 토큰 | 루브릭 | 코드 채점 |
 |---|---|---|---|---|---|
 | 초기 | 검색 할당량 소진 상태, 기본 사고 수준 | 135초 (1회) | 42k | – | – |
-| 기준선 | 검색 복구, 리서치·검수·예산 `thinking=low` | 41.4초 | 25.4k | 0.96 (왕복 동선 1건 실패) | 1.00 |
+| 기준선 | 검색 복구, 리서치, 검수, 예산 `thinking=low` | 41.4초 | 25.4k | 0.96 (왕복 동선 1건 실패) | 1.00 |
 | v2 | 권역 기반 동선 검사, 재검수 생략, 검수 입력 중복 제거, 리서치 출력 압축 | 47.4초* | 22.2k | 0.96 | 1.00 |
 | **v3** | 출력 필드 축소, 수정 단계 `thinking=low`, 플래너 자가 점검 규칙 | **35.8초** | **18.9k** | **1.00 (5/5)** | **1.00** |
 
 \* v2 평균은 수정이 발생한 3박 4일 케이스(86초) 하나가 끌어올렸습니다.
 
-[`RunMetricsPlugin`](travel_roulette/observability.py)으로 에이전트별 시간을 재 보니 병목은 일정 작성(17~22초)과 수정(21초)이었습니다. 생성 속도가 초당 약 220토큰이라 출력과 사고의 토큰을 줄이면 그만큼 빨라집니다. 같은 여행지로 비교하려고 평가 세트에 시드를 고정했습니다(대구→수원 2박 3일: 58초·31k → 36초·17k).
+[`RunMetricsPlugin`](travel_roulette/observability.py)으로 에이전트별 시간을 재 보니 병목은 일정 작성(17~22초)과 수정(21초)이었습니다. 생성 속도가 초당 약 220토큰이라 출력과 사고의 토큰을 줄이면 그만큼 빨라집니다. 같은 여행지로 비교하려고 평가 세트에 시드를 고정했습니다(대구→수원 2박 3일: 58초, 31k → 36초, 17k).
 
 기준선과 v2는 시드 고정 전이라 시나리오별 여행지가 v3와 다릅니다. 루브릭 심사는 토큰을 절약하려고 1회 샘플링해서 편차가 있을 수 있습니다. 심사 모델의 응답 형식 오류로 채점이 빠진 케이스(기준선과 v2 각 1건)는 평균에서 제외했습니다.
 
@@ -240,21 +240,21 @@ INFO travel_roulette.metrics run_metrics {"duration_s": 41.3, "llm_calls": 8, "t
 ```
 travel_roulette/          ADK 앱 패키지 (adk web이 인식)
 ├── agent.py              Workflow 그래프와 노드 정의 (root_agent, app)
-├── dart.py               지도에 다트 던지기 (거리 범위 샘플링 · 육지 판정 · Nominatim 주소 검색)
+├── dart.py               지도에 다트 던지기 (거리 범위 샘플링, 육지 판정, Nominatim 주소 검색)
 ├── request_parser.py     채팅 메시지 → 여행 조건 파싱 (TripRequest)
 ├── prompts.py            에이전트 지시문 (Instruction Provider)
-├── schemas.py            일정 · 검수 · 예산 구조화 출력 스키마
+├── schemas.py            일정, 검수, 예산 구조화 출력 스키마
 ├── budget.py             예산 합계 계산
 ├── weather.py            Open-Meteo 날씨 예보
 ├── routes.py             일정 동선(권역 순서) 왕복 검사
-├── render.py             채팅용 마크다운 렌더링 · 리서치 메모에서 '찾은 곳' 추리기
+├── render.py             채팅용 마크다운 렌더링, 리서치 메모에서 '찾은 곳' 추리기
 ├── observability.py      실행별 지표 수집 플러그인
-├── evals/                adk eval 평가 세트 · 설정 · 커스텀 지표
+├── evals/                adk eval 평가 세트, 설정, 커스텀 지표
 └── config.py             모델명 등 환경 설정
 server/
 ├── main.py               FastAPI (SSE 스트리밍, 세션 DB)
 └── static/               웹 UI (바닐라 JS, 다크 모드 지원)
-tests/                    단위 · 워크플로 · 서버 테스트
+tests/                    단위, 워크플로, 서버 테스트
 docs/screenshots/         README용 화면 캡처
 legacy/                   Kaggle 캡스톤 원본 코드 (2025)
 ```
@@ -266,8 +266,8 @@ legacy/                   Kaggle 캡스톤 원본 코드 (2025)
 | | 2025 캡스톤 | 지금 |
 |---|---|---|
 | 콘셉트 | 도시를 직접 입력하는 여행 플래너 | 기간만 고르면 지도에 다트를 던져 꽂힌 동네로 |
-| 오케스트레이션 | 코디네이터 LLM이 `AgentTool`로 순서대로 호출 | ADK 2.x Workflow 그래프 (병렬·조건 분기·루프) |
-| 리서치 | 에이전트 1개 | 명소·맛집·교통 3개 병렬 + 출처 수집 |
+| 오케스트레이션 | 코디네이터 LLM이 `AgentTool`로 순서대로 호출 | ADK 2.x Workflow 그래프 (병렬, 조건 분기, 루프) |
+| 리서치 | 에이전트 1개 | 명소, 맛집, 교통 3개 병렬 + 출처 수집 |
 | 품질 관리 | 없음 | 검수 → 수정 루프 + 코드 기반 필수 조건 검사 |
 | 예산 | LLM이 Code Executor로 계산 | LLM은 단가만, 합계는 파이썬 |
 | 출력 | 자유 텍스트 | 구조화 JSON (Pydantic) |
@@ -278,7 +278,7 @@ legacy/                   Kaggle 캡스톤 원본 코드 (2025)
 
 ## 한계점
 
-- AI가 만든 일정이라 영업시간·요금·휴무일은 방문 전에 확인해야 합니다.
+- AI가 만든 일정이라 영업시간, 요금, 휴무일은 방문 전에 확인해야 합니다.
 - 예산은 검색 결과와 가이드라인으로 낸 추정치입니다.
 - 거리 판단은 직선거리 기준이라 실제 이동 시간과 다를 수 있습니다(교통 리서처가 실제 소요 시간을 조사해 보완합니다).
 - 바다를 빠르게 거르는 육지 윤곽은 손으로 그린 근사치라 윤곽 밖의 작은 섬에는 다트가 꽂히지 않습니다. 민간인 통제구역 경계도 근사치입니다.

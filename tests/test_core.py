@@ -182,3 +182,22 @@ def test_weather_parse_and_describe():
   assert fc[0]["summary"] == "약한 비"
   assert "강수확률 70%" in describe_weather(fc, dt.date(2026, 11, 20))
   assert "가을" in describe_weather(None, dt.date(2026, 10, 1))
+
+
+def test_found_items_picks_named_lines_only():
+  from travel_roulette.render import found_items
+
+  notes = (
+      "**읍내 권역**\n"
+      "- 읍내 권역\n"
+      "* **법주사** / 속리산면 / 천년 고찰 / 2시간\n"
+      "1. 말티재 전망대 *(실내)*: 굽잇길을 내려다보는 곳\n"
+      "그냥 문장입니다.\n"
+      "- " + "가" * 31 + " / 이름이 너무 길다\n"
+  )
+  assert found_items(notes) == [
+      {"name": "법주사", "note": "속리산면 · 천년 고찰 / 2시간"},
+      {"name": "말티재 전망대 (실내)", "note": "굽잇길을 내려다보는 곳"},
+  ]
+  assert found_items("- 가 / 나\n- 다 / 라", limit=1) == [{"name": "가", "note": "나"}]
+  assert found_items("") == []

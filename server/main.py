@@ -2,8 +2,10 @@
 
 - GET  /                       웹 UI
 - GET  /api/meta               선택지(기간·출발지·예산 스타일)와 여행지 목록
-- POST /api/challenges         챌린지 실행 (Server-Sent Events로 진행 상황 스트리밍)
-- GET  /api/challenges/{id}    저장된 결과 조회 (공유 링크용)
+- POST /api/darts                    다트만 던진다 (LLM 없음). 꽂힌 곳과 세션 ID를 돌려준다
+- POST /api/challenges/{id}/plan     그 다트로 일정을 짠다 (Server-Sent Events로 진행 상황 스트리밍)
+- POST /api/challenges               던지기부터 일정까지 한 번에 (SSE)
+- GET  /api/challenges/{id}          꽂힌 곳과, 완성됐다면 일정 조회 (공유 링크용)
 - GET  /healthz                헬스 체크
 
 실행:  uvicorn server.main:app --reload
@@ -33,6 +35,7 @@ load_dotenv()
 from travel_roulette import agent as travel_agent  # noqa: E402  (.env 로드 이후 import)
 from travel_roulette.config import APP_NAME  # noqa: E402
 from travel_roulette.dart import DEPARTURES, DURATION_LABELS, GeocodeError, range_for  # noqa: E402
+from travel_roulette.render import found_items  # noqa: E402
 from travel_roulette.request_parser import BUDGET_LEVELS, TripRequest  # noqa: E402
 
 logger = logging.getLogger("travel_roulette.server")
@@ -68,10 +71,41 @@ def make_session_service() -> BaseSessionService:
   return DatabaseSessionService(db_url=url)
 
 
+class _Job:
+  """일정 짜기 한 번의 실행. 브라우저 연결과 따로 돌아서, 창을 닫아도 끝까지 만들고
+  나중에 같은 링크로 오면 지금까지의 진행 상황부터 이어서 볼 수 있다."""
+
+  def __init__(self) -> None:
+    self.events: list[dict[str, Any]] = []
+    self.done = False
+    self.changed = asyncio.Condition()
+    self.task: asyncio.Task[None] | None = None
+
+  async def push(self, event: dict[str, Any] | None = None, *, done: bool = False) -> None:
+    async with self.changed:
+      if event:
+        self.events.append(event)
+      self.done = self.done or done
+      self.changed.notify_all()
+
+  async def stream(self) -> AsyncIterator[str]:
+    sent = 0
+    while True:
+      async with self.changed:
+        await self.changed.wait_for(lambda: len(self.events) > sent or self.done)
+        batch, finished = self.events[sent:], self.done
+      for event in batch:
+        yield _sse(event)
+      sent += len(batch)
+      if finished:
+        return
+
+
 class _State:
   runner: Runner
   session_service: BaseSessionService
   semaphore: asyncio.Semaphore
+  jobs: dict[str, _Job]
 
 
 state = _State()
@@ -82,7 +116,11 @@ async def lifespan(_: FastAPI):
   state.session_service = make_session_service()
   state.runner = Runner(app=travel_agent.app, session_service=state.session_service)
   state.semaphore = asyncio.Semaphore(MAX_CONCURRENT_RUNS)
+  state.jobs = {}
   yield
+  for job in list(state.jobs.values()):
+    if job.task:
+      job.task.cancel()
   await state.runner.close()
 
 
@@ -126,25 +164,20 @@ async def meta() -> dict[str, Any]:
   }
 
 
-async def _run_challenge(req: TripRequest) -> AsyncIterator[str]:
-  session_id = uuid.uuid4().hex[:12]
-  await state.session_service.create_session(
-      app_name=APP_NAME,
-      user_id=USER_ID,
-      session_id=session_id,
-      state={"trip_request": req.model_dump(mode="json")},
-  )
-  yield _sse({"type": "session", "id": session_id})
+# 리서치 메모가 state에 들어오는 대로 '찾은 곳'으로 먼저 보여 준다 (교통 메모는 장소 목록이 아니라 제외)
+_FOUND_KEYS = {"spots_notes": "spots", "food_notes": "food"}
 
+
+async def _run_job(session_id: str, job: _Job) -> None:
+  await job.push({"type": "session", "id": session_id})
   if state.semaphore.locked():
-    yield _sse({"type": "queued", "message": "요청이 많아 잠시 대기 중이에요…"})
-
-  async with state.semaphore:
-    seen_stages: set[str] = set()
-    sent_challenge = False
-    plan: dict[str, Any] | None = None
-    invocation_id = ""
-    try:
+    await job.push({"type": "queued", "message": "요청이 많아 잠시 대기 중이에요…"})
+  try:
+    async with state.semaphore:
+      seen_stages: set[str] = set()
+      sent_challenge = False
+      plan: dict[str, Any] | None = None
+      invocation_id = ""
       message = types.Content(role="user", parts=[types.Part(text="랜덤 여행 챌린지 시작")])
       async for event in state.runner.run_async(
           user_id=USER_ID, session_id=session_id, new_message=message
@@ -156,13 +189,17 @@ async def _run_challenge(req: TripRequest) -> AsyncIterator[str]:
           stage, label = STAGES[node]
           if stage not in seen_stages:
             seen_stages.add(stage)
-            yield _sse({"type": "stage", "stage": stage, "label": label})
+            await job.push({"type": "stage", "stage": stage, "label": label})
 
         delta = event.actions.state_delta if event.actions else {}
         if not sent_challenge and delta.get("challenge"):
           sent_challenge = True
-          yield _sse({"type": "challenge", "challenge": delta["challenge"],
-                      "weather": delta.get("weather")})
+          await job.push({"type": "challenge", "challenge": delta["challenge"],
+                          "weather": delta.get("weather")})
+        for key, kind in _FOUND_KEYS.items():
+          items = found_items(delta[key]) if isinstance(delta.get(key), str) else []
+          if items:
+            await job.push({"type": "found", "kind": kind, "items": items})
         invocation_id = event.invocation_id or invocation_id
         if delta.get("final_plan"):
           plan = delta["final_plan"]
@@ -180,12 +217,49 @@ async def _run_challenge(req: TripRequest) -> AsyncIterator[str]:
             "llm_calls": metrics.get("llm_calls"),
             "total_tokens": (metrics.get("tokens") or {}).get("total"),
         }
-        yield _sse({"type": "result", "id": session_id, "plan": plan, "stats": stats})
+        await job.push({"type": "result", "id": session_id, "plan": plan, "stats": stats})
       else:
-        yield _sse({"type": "error", "message": "일정을 완성하지 못했어요. 다시 시도해 주세요."})
-    except Exception as e:  # 사용자에게는 일반 메시지만
-      logger.exception("챌린지 실행 실패 (session=%s)", session_id)
-      yield _sse({"type": "error", "message": _user_message(e)})
+        await job.push({"type": "error", "message": "일정을 완성하지 못했어요. 다시 시도해 주세요."})
+  except Exception as e:  # 사용자에게는 일반 메시지만
+    logger.exception("챌린지 실행 실패 (session=%s)", session_id)
+    await job.push({"type": "error", "message": _user_message(e)})
+  finally:
+    state.jobs.pop(session_id, None)
+    await asyncio.shield(job.push(done=True))
+
+
+def _start_job(session_id: str) -> _Job:
+  """이미 돌고 있으면 그 실행에 붙고, 아니면 새로 시작한다."""
+  job = state.jobs.get(session_id)
+  if job is None:
+    job = state.jobs[session_id] = _Job()
+    job.task = asyncio.create_task(_run_job(session_id, job))
+  return job
+
+
+def _stream(events: AsyncIterator[str]) -> StreamingResponse:
+  return StreamingResponse(
+      events, media_type="text/event-stream",
+      headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+  )
+
+
+async def _create_session(initial: dict[str, Any]) -> str:
+  session_id = uuid.uuid4().hex[:12]
+  await state.session_service.create_session(
+      app_name=APP_NAME, user_id=USER_ID, session_id=session_id, state=initial)
+  return session_id
+
+
+async def _get_session(session_id: str) -> Any:
+  if not session_id.isalnum() or len(session_id) > 64:
+    raise HTTPException(status_code=400, detail="잘못된 ID입니다.")
+  session = await state.session_service.get_session(
+      app_name=APP_NAME, user_id=USER_ID, session_id=session_id
+  )
+  if not session or not session.state.get("challenge"):
+    raise HTTPException(status_code=404, detail="결과를 찾을 수 없어요.")
+  return session
 
 
 def _user_message(error: BaseException) -> str:
@@ -199,22 +273,43 @@ def _user_message(error: BaseException) -> str:
   return "AI 호출 중 문제가 생겼어요. 잠시 후 다시 시도해 주세요."
 
 
+@app.post("/api/darts")
+async def create_dart(req: TripRequest) -> dict[str, Any]:
+  try:
+    drawn = await travel_agent.draw_challenge(req)
+  except GeocodeError as e:
+    raise HTTPException(status_code=503, detail=_user_message(e)) from e
+  session_id = await _create_session(
+      {"trip_request": req.model_dump(mode="json"), **drawn, "prethrown": True})
+  return {"id": session_id, "challenge": drawn["challenge"], "weather": drawn["weather"]}
+
+
+@app.post("/api/challenges/{session_id}/plan")
+async def plan_challenge(session_id: str) -> StreamingResponse:
+  session = await _get_session(session_id)
+  plan = session.state.get("final_plan")
+  if plan and session_id not in state.jobs:
+
+    async def finished() -> AsyncIterator[str]:
+      yield _sse({"type": "result", "id": session_id, "plan": plan, "stats": {}})
+
+    return _stream(finished())
+  return _stream(_start_job(session_id).stream())
+
+
 @app.post("/api/challenges")
 async def create_challenge(req: TripRequest) -> StreamingResponse:
-  return StreamingResponse(
-      _run_challenge(req),
-      media_type="text/event-stream",
-      headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-  )
+  session_id = await _create_session({"trip_request": req.model_dump(mode="json")})
+  return _stream(_start_job(session_id).stream())
 
 
 @app.get("/api/challenges/{session_id}")
 async def get_challenge(session_id: str) -> dict[str, Any]:
-  if not session_id.isalnum() or len(session_id) > 64:
-    raise HTTPException(status_code=400, detail="잘못된 ID입니다.")
-  session = await state.session_service.get_session(
-      app_name=APP_NAME, user_id=USER_ID, session_id=session_id
-  )
-  if not session or not session.state.get("final_plan"):
-    raise HTTPException(status_code=404, detail="결과를 찾을 수 없어요.")
-  return {"id": session_id, "plan": session.state["final_plan"]}
+  session = await _get_session(session_id)
+  return {
+      "id": session_id,
+      "challenge": session.state["challenge"],
+      "weather": session.state.get("weather"),
+      "plan": session.state.get("final_plan"),
+      "planning": session_id in state.jobs,
+  }

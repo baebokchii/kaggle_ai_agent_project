@@ -22,6 +22,8 @@
   --accent-r: #1b64da;
   --accent-b: #1349a8;
   --d: 12px;
+  /* 설정 카드·결과 카드·지도가 함께 쓰는 행 높이. 넓은 화면에서 제목과 이 행이 한 화면에 들어오게 잡는다. */
+  --row-h: clamp(360px, calc(100vh - 300px), 460px);
   --warn: #dd7d02;
   --warn-soft: #fff3e0;
   --r-sm: 4px;
@@ -108,17 +110,24 @@ symbol .dot { fill: currentColor; stroke: none; }
 /* ---------- setup ---------- */
 .setup {
   margin: var(--s8) 0 var(--s6); display: grid; gap: var(--s5);
-  grid-template-areas: "copy" "form" "map";
+  grid-template-areas: "copy" "form" "map" "stage";
 }
 .setup-copy { grid-area: copy; }
 .setup-form { grid-area: form; }
 .map-wrap { grid-area: map; }
+.stage { grid-area: stage; }
+/* 다트를 던진 뒤에는 결과 카드가 설정 카드 자리에 그대로 들어간다. 두 카드와 지도는 같은 행을 쓰고
+   높이도 같아서(--row-h), 버튼을 눌러도 배치가 바뀌지 않고 지도는 늘 카드와 같은 높이다. */
+body.is-landed .setup-form { display: none; }
 @media (min-width: 900px) {
   .setup {
+    margin-top: var(--s7);
     grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
     grid-template-areas: "copy copy" "form map";
     column-gap: var(--s6); row-gap: var(--s5); align-items: stretch;
   }
+  .stage { grid-area: form; }
+  .setup .map-wrap { min-height: var(--row-h); }
 }
 
 /* ---------- map ---------- */
@@ -146,6 +155,7 @@ symbol .dot { fill: currentColor; stroke: none; }
 .leaflet-bar a { color: var(--ink); }
 .dep-label { font-size: 12px; font-weight: 700; color: var(--ink); background: var(--surface); border: 0; border-radius: 0; padding: 2px 8px; white-space: nowrap; box-shadow: 2px 2px 0 var(--face-b); }
 .dart-icon { background: none; border: 0; }
+.dart-label { display: block; white-space: nowrap; font-size: 14px; font-weight: 800; letter-spacing: -0.02em; color: var(--accent-ink); background: var(--accent); padding: 3px 10px; box-shadow: 3px 3px 0 var(--accent-b); animation: land .4s cubic-bezier(.16, 1, .3, 1) backwards; }
 .dart-icon svg, .fx-dart svg { display: block; width: 104px; height: 104px; overflow: visible; filter: drop-shadow(0 3px 4px rgba(0, 27, 55, .28)); }
 
 /* throw effects: drawn in pixel space over the map */
@@ -173,7 +183,7 @@ symbol .dot { fill: currentColor; stroke: none; }
   border-radius: 0; padding: 3px 10px; box-shadow: 3px 3px 0 var(--face-b);
 }
 .setup-copy { display: flex; align-items: center; justify-content: space-between; gap: var(--s5); }
-.hero-art { flex: none; width: clamp(132px, 27vw, 300px); height: auto; overflow: visible; margin: -8px 0; }
+.hero-art { flex: none; width: clamp(132px, 22vw, 240px); height: auto; overflow: visible; margin: -8px 0; }
 .hero-art .hero-dart { transform-box: fill-box; transform-origin: 0 50%; animation: hero-stick 1.1s cubic-bezier(.2, .9, .3, 1) .15s backwards; }
 @keyframes hero-stick {
   0% { transform: translate(110px, -80px) scale(1.5); opacity: 0; }
@@ -190,6 +200,7 @@ body.has-result .hero-art { display: none; }
 .lede { color: var(--ink-2); font-size: 17px; font-weight: 500; margin: 0; max-width: 32em; }
 
 .setup-form {
+  display: flex; flex-direction: column;
   background: var(--surface); border-radius: var(--r-lg);
   padding: var(--s5);
 }
@@ -209,7 +220,7 @@ body.has-result .hero-art { display: none; }
 .seg button[aria-checked="true"] { background: var(--accent); color: var(--accent-ink); font-weight: 700; --side-r: var(--accent-r); --side-b: var(--accent-b); transform: translate(3px, 3px); --d: 2px; }
 @media (max-width: 560px) { .seg { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 
-.options { margin: var(--s5) 0 0; border-top: 1px solid var(--line); padding-top: var(--s4); }
+.options { margin: var(--s5) 0; border-top: 1px solid var(--line); padding-top: var(--s4); }
 .options summary { cursor: pointer; font-size: 14px; font-weight: 500; list-style: none; display: flex; gap: var(--s2); flex-wrap: wrap; align-items: baseline; }
 .options summary::-webkit-details-marker { display: none; }
 .options summary > span:first-child { color: var(--accent); font-weight: 600; }
@@ -230,7 +241,7 @@ body.has-result .hero-art { display: none; }
 
 .spin {
   display: flex; align-items: center; justify-content: center; gap: var(--s2);
-  width: calc(100% - 8px); margin: var(--s5) 8px 8px 0; border: 0; --d: 8px; --side-r: var(--accent-r); --side-b: var(--accent-b); min-height: 58px; letter-spacing: -0.02em;
+  width: calc(100% - 8px); margin: auto 8px 8px 0; border: 0; --d: 8px; --side-r: var(--accent-r); --side-b: var(--accent-b); min-height: 58px; letter-spacing: -0.02em;
   background: var(--accent); color: var(--accent-ink); font: inherit; font-size: 17px; font-weight: 700;
   cursor: pointer; transition: transform .12s ease-out, background-color .15s;
 }
@@ -246,40 +257,76 @@ body.has-result .setup h1 br { display: none; }
 body.has-result .lede { display: none; }
 body.has-result .setup h1 { margin-bottom: var(--s4); }
 
-/* ---------- stage (waiting) ---------- */
-.stage {
-  max-width: 920px; margin: 0 auto var(--s7); background: var(--surface);
-  border-radius: var(--r-lg);
-  padding: var(--s6) var(--s5); display: grid; gap: var(--s6);
-}
-.draw { text-align: center; }
-.slot { font-weight: 800; letter-spacing: -0.035em; font-size: clamp(34px, 7vw, 56px); line-height: 1.2; margin: 0; color: var(--accent); text-shadow: 1px 1px 0 var(--accent-soft), 2px 2px 0 var(--accent-soft), 3px 3px 0 color-mix(in srgb, var(--accent) 35%, var(--surface)); min-height: 1.15em; }
-.slot.spinning { color: var(--ink); font-size: clamp(24px, 5vw, 32px); text-shadow: none; }
+/* ---------- stage: 다트를 던진 뒤의 카드 ---------- */
+/* data-state 하나로 내용을 바꾼다: throwing(던지는 중) → offer(꽂힌 곳 + 제안) → planning(일정 짜는 중) */
+.stage { background: var(--surface); min-width: 0; padding: var(--s5); display: flex; flex-direction: column; gap: var(--s3); }
+.stage[data-state="throwing"] :is(.stage-head, .land-info, .progress, .offer),
+.stage[data-state="offer"] :is(.waiting, .progress),
+.stage[data-state="planning"] :is(.waiting, .draw, .offer) { display: none; }
+
+.stage-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); }
+.eyebrow { margin: 0; font-size: 13px; font-weight: 700; color: var(--accent); }
+.stage-head .btn { min-height: 28px; padding: 0 var(--s2); margin-right: calc(-1 * var(--s2)); font-size: 13px; }
+
+.slot { font-weight: 800; letter-spacing: -0.035em; font-size: clamp(30px, 3.4vw, 42px); line-height: 1.2; margin: 0; color: var(--accent); text-shadow: 1px 1px 0 var(--accent-soft), 2px 2px 0 var(--accent-soft), 3px 3px 0 color-mix(in srgb, var(--accent) 35%, var(--surface)); }
 .slot.landed { animation: land .5s cubic-bezier(.16, 1, .3, 1); }
 @keyframes land { from { transform: translateY(8px) scale(.94); opacity: .4; } to { transform: none; opacity: 1; } }
 .slot-sub { margin: var(--s2) 0 0; color: var(--ink-2); font-size: 15px; }
-.slot-pitch { margin: var(--s3) auto 0; max-width: 28em; color: var(--muted); font-size: 14px; }
+.land-info { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s3); margin-top: var(--s2); font-size: 13px; color: var(--muted); }
+.land-info .maplink { margin-top: 0; font-size: 13px; }
+.wchip { font-size: 12px; font-weight: 600; padding: 3px 8px; background: var(--sea-soft); color: var(--ink-2); white-space: nowrap; }
 
-.progress { border-top: 1px solid var(--line); padding-top: var(--s5); }
-.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s3); }
-.steps li { display: grid; grid-template-columns: 20px 1fr auto; align-items: center; gap: var(--s3); color: var(--muted); font-size: 15px; }
-/* 단계 표시는 작은 정육면체: 대기(회색) → 진행(파랑, 통통 튐) → 완료(초록) */
-.steps li::before { content: ""; width: 18px; height: 18px; justify-self: center; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1l7 3.5L8 8 1 4.5z' fill='%23e5e8eb'/%3E%3Cpath d='M1 4.5L8 8v7.5L1 12z' fill='%23d1d6db'/%3E%3Cpath d='M15 4.5L8 8v7.5l7-3.5z' fill='%23b0b8c1'/%3E%3C/svg%3E") center / contain no-repeat; }
-.steps li.active { color: var(--ink); font-weight: 700; }
-.steps li.active::before { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1l7 3.5L8 8 1 4.5z' fill='%238cc0ff'/%3E%3Cpath d='M1 4.5L8 8v7.5L1 12z' fill='%233182f6'/%3E%3Cpath d='M15 4.5L8 8v7.5l7-3.5z' fill='%231b64da'/%3E%3C/svg%3E"); animation: bob .7s ease-in-out infinite alternate; }
-@keyframes bob { from { transform: translateY(1px); } to { transform: translateY(-4px); } }
-.steps li.done { color: var(--ink-2); }
+/* 던지는 중: 가운데에 문구와 통통 튀는 정육면체 */
+.stage[data-state="throwing"] { justify-content: center; gap: var(--s5); }
+.stage[data-state="throwing"] .slot { color: var(--ink); font-size: clamp(24px, 2.6vw, 30px); text-shadow: none; }
+.waiting { display: flex; gap: var(--s3); }
+.waiting span { width: 26px; height: 26px; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1l7 3.5L8 8 1 4.5z' fill='%238cc0ff'/%3E%3Cpath d='M1 4.5L8 8v7.5L1 12z' fill='%233182f6'/%3E%3Cpath d='M15 4.5L8 8v7.5l7-3.5z' fill='%231b64da'/%3E%3C/svg%3E") center / contain no-repeat; animation: bob .6s ease-in-out infinite alternate; }
+.waiting span:nth-child(2) { animation-delay: .15s; }
+.waiting span:nth-child(3) { animation-delay: .3s; }
+@keyframes bob { from { transform: translateY(1px); } to { transform: translateY(-5px); } }
+
+/* 제안: 카드 아래쪽에 붙는다 */
+.error { margin: 0; padding: var(--s3) var(--s4); background: var(--target-soft); color: var(--ink); font-size: 14px; font-weight: 500; }
+.setup-form .error { margin-top: var(--s3); }
+.offer { margin-top: auto; padding-top: var(--s3); border-top: 1px solid var(--line); }
+.offer-q { margin: 0; font-size: 18px; font-weight: 700; letter-spacing: -0.02em; }
+.offer .hint { display: block; margin: 2px 0 var(--s3); font-size: 13px; }
+.offer-actions { display: flex; gap: var(--s4); padding: 0 5px 5px 0; }
+.offer-actions .btn { flex: 1 1 0; min-height: 50px; white-space: nowrap; }
+.offer-actions .btn.primary { flex-grow: 1.4; font-size: 16px; }
+
+/* 일정 짜는 중: 단계(정육면체 줄) + 리서치가 찾은 곳 + 창을 닫아도 된다는 안내 */
+.progress { display: flex; flex-direction: column; gap: var(--s3); flex: 1 1 auto; min-height: 0; }
+.steps { list-style: none; margin: var(--s1) 0 0; padding: 0; display: flex; align-items: center; }
+.steps li { display: flex; align-items: center; flex: 1; }
+.steps li:last-child { flex: none; }
+.steps li span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+/* 대기(회색) → 진행(파랑, 통통 튐) → 완료(초록) */
+.steps li::before { content: ""; flex: none; width: 20px; height: 20px; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1l7 3.5L8 8 1 4.5z' fill='%23e5e8eb'/%3E%3Cpath d='M1 4.5L8 8v7.5L1 12z' fill='%23d1d6db'/%3E%3Cpath d='M15 4.5L8 8v7.5l7-3.5z' fill='%23b0b8c1'/%3E%3C/svg%3E") center / contain no-repeat; }
+.steps li::after { content: ""; flex: 1; height: 2px; margin: 0 6px; background: var(--line-strong); }
+.steps li:last-child::after { display: none; }
+.steps li.active::before { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1l7 3.5L8 8 1 4.5z' fill='%238cc0ff'/%3E%3Cpath d='M1 4.5L8 8v7.5L1 12z' fill='%233182f6'/%3E%3Cpath d='M15 4.5L8 8v7.5l7-3.5z' fill='%231b64da'/%3E%3C/svg%3E"); animation: bob .6s ease-in-out infinite alternate; }
 .steps li.done::before { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1l7 3.5L8 8 1 4.5z' fill='%237fe3b6'/%3E%3Cpath d='M1 4.5L8 8v7.5L1 12z' fill='%2303b26c'/%3E%3Cpath d='M15 4.5L8 8v7.5l7-3.5z' fill='%23028a54'/%3E%3C/svg%3E"); }
-.steps .t { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
-.elapsed { margin: var(--s4) 0 0; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
-.error { margin: 0; padding: var(--s3) var(--s4); border-radius: var(--r-sm); background: var(--target-soft); color: var(--ink); font-weight: 500; }
-
+.steps li.done::after { background: #03b26c; }
+.step-now { margin: 0; font-size: 15px; }
+.elapsed { margin-left: var(--s2); font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.found { display: flex; flex-direction: column; gap: var(--s2); padding-top: var(--s3); border-top: 1px solid var(--line); }
+.found h3 { margin: 0; font-size: 13px; color: var(--ink-2); }
+#foundCount { color: var(--accent); }
+.found-empty { margin: 0; font-size: 13px; color: var(--muted); }
+#foundList { list-style: none; margin: 0; padding: 0 3px 3px 0; display: flex; flex-wrap: wrap; align-content: flex-start; gap: 6px var(--s2); }
+.found-chip { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; padding: 4px 10px 4px 7px; font-size: 13px; font-weight: 600; background: var(--surface-2); box-shadow: 2px 2px 0 var(--face-r); animation: land .4s cubic-bezier(.16, 1, .3, 1) backwards; }
+.found-chip .ico { width: 15px; height: 15px; color: var(--accent); }
+.found-chip[data-kind="food"] .ico { color: var(--target); }
+.found-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.leave { margin: 0; font-size: 12px; color: var(--muted); }
+.linkbtn { display: inline-flex; align-items: center; gap: 4px; margin-left: var(--s1); padding: 0; border: 0; background: none; font: inherit; font-weight: 700; color: var(--accent); cursor: pointer; }
+.linkbtn .ico { width: 14px; height: 14px; }
+.linkbtn.copied { color: #03b26c; }
 @media (min-width: 900px) {
-  .stage { max-width: 920px; grid-template-columns: 1.1fr 1fr; align-items: center; padding: var(--s7); }
-  .draw { text-align: left; }
-  .slot-pitch { margin-left: 0; }
-  .progress { border-top: 0; border-left: 1px solid var(--line); padding: 0 0 0 var(--s6); }
-  .error { grid-column: 1 / -1; }
+  /* 넓은 화면에서는 카드 높이가 지도와 같으므로, 찾은 곳 목록은 남는 높이를 채우고 넘치면 그 안에서 스크롤한다 */
+  .found { flex: 1 1 0; min-height: 88px; }
+  #foundList { flex: 1 1 0; min-height: 0; overflow-y: auto; }
 }
 
 /* ---------- result ---------- */
@@ -291,8 +338,8 @@ body.has-result .setup h1 { margin-bottom: var(--s4); }
 .trip-head h2 { font-weight: 800; letter-spacing: -0.035em; font-size: clamp(34px, 5vw, 54px); line-height: 1.15; margin: 0; color: var(--accent); text-shadow: 1px 1px 0 var(--accent-soft), 2px 2px 0 var(--accent-soft), 3px 3px 0 color-mix(in srgb, var(--accent) 35%, var(--surface)); }
 .trip-head .province { display: block; font-family: var(--sans); font-size: 15px; font-weight: 600; letter-spacing: -0.01em; color: var(--muted); margin-top: var(--s2); }
 .trip-head .pitch { margin: var(--s2) 0 0; opacity: .85; }
-.trip-head .maplink { display: inline-flex; align-items: center; gap: 6px; margin-top: var(--s3); color: var(--accent); font-weight: 600; text-decoration: none; font-size: 14px; }
-.trip-head .maplink:hover { text-decoration: underline; }
+.maplink { display: inline-flex; align-items: center; gap: 6px; margin-top: var(--s3); color: var(--accent); font-weight: 600; text-decoration: none; font-size: 14px; }
+.maplink:hover { text-decoration: underline; }
 .facts { display: flex; flex-wrap: wrap; gap: 10px; margin: var(--s4) 0 0; padding: 0; list-style: none; font-size: 14px; font-weight: 600; }
 .facts li { display: flex; gap: 6px; padding: 5px 11px; background: var(--surface-2); box-shadow: 3px 3px 0 var(--face-r); }
 .facts dt, .facts .k { color: var(--muted); font-weight: 500; }

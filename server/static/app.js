@@ -5,7 +5,6 @@ const $ = (sel) => document.querySelector(sel);
 const SVG_NS = "http://www.w3.org/2000/svg";
 
 const STEPS = [
-  ["draw", "다트 던지기"],
   ["research", "명소·맛집·교통 리서치"],
   ["plan", "일정 짜기"],
   ["review", "일정 검수"],
@@ -19,13 +18,12 @@ const ui = {
   nights: 1,
   departures: {},
   ranges: {},
-  current: null,
+  landed: null, // { id, challenge }: 지금 지도에 꽂혀 있는 다트
+  queued: "",
+  abort: null,
   busy: false,
   tickTimer: null,
   startedAt: 0,
-  stepStart: {},
-  stepTime: {},
-  activeStep: null,
 };
 
 function el(tag, attrs = {}, ...children) {
@@ -58,7 +56,6 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 const won = (n) => `${Number(n || 0).toLocaleString("ko-KR")}원`;
-const secs = (ms) => `${Math.max(1, Math.round(ms / 1000))}초`;
 
 // ---------------------------------------------------------------- 초기화
 async function init() {
@@ -92,6 +89,7 @@ async function init() {
 
   $("#setupForm").addEventListener("submit", (e) => { e.preventDefault(); start([]); });
   $("#actionbar").addEventListener("click", onAction);
+  $("#stage").addEventListener("click", onAction);
 
   const shared = new URLSearchParams(location.search).get("id");
   if (shared) loadShared(shared);
@@ -145,7 +143,7 @@ function initMap() {
   }).addTo(geo.map);
   new ResizeObserver(() => {
     geo.map.invalidateSize();
-    if (geo.view && !ui.busy && !document.body.classList.contains("has-result")) geo.map.fitBounds(geo.view, { padding: [16, 16], maxZoom: 9 });
+    if (geo.view && !ui.busy && !ui.landed && !document.body.classList.contains("has-result")) geo.map.fitBounds(geo.view, { padding: [16, 16], maxZoom: 9 });
   }).observe($("#map"));
   geo.range = L.layerGroup().addTo(geo.map);
   geo.darts = L.layerGroup().addTo(geo.map);
@@ -183,6 +181,15 @@ function drawRange() {
     : [[33.1, 125.6], [38.45, 129.8]];
   geo.view = view;
   geo.map.fitBounds(view, { padding: [16, 16], maxZoom: 9 });
+}
+
+// 꽂힌 다트와 그 옆 동네 이름표. 아래 카드를 보지 않아도 지도만으로 어디인지 알 수 있게 한다.
+function pinDart(d) {
+  const at = [d.lat, d.lon];
+  L.marker(at, { icon: dartIcon(), interactive: false }).addTo(geo.darts);
+  if (!d.name) return;
+  const label = el("span", { class: "dart-label", text: d.name });
+  L.marker(at, { icon: L.divIcon({ className: "", html: label, iconSize: null, iconAnchor: [-12, -6] }), interactive: false }).addTo(geo.darts);
 }
 
 function dartIcon() {
@@ -408,7 +415,7 @@ async function animateThrow(ch) {
   // 화면에 떠 있던 연출용 다트를 모두 걷어 내고, 지도에 붙는 다트 하나만 남긴다
   clearFx();
   geo.darts.clearLayers();
-  L.marker(target, { icon: dartIcon(), interactive: false }).addTo(geo.darts);
+  pinDart(d);
   geo.map.flyTo(target, 10, { duration: 1.8, easeLinearity: 0.2 });
 }
 
@@ -418,7 +425,7 @@ function showLanding(ch) {
   clearFx();
   geo.darts.clearLayers();
   const d = ch.destination;
-  L.marker([d.lat, d.lon], { icon: dartIcon(), interactive: false }).addTo(geo.darts);
+  pinDart(d);
   geo.map.setView([d.lat, d.lon], 10);
 }
 
@@ -452,45 +459,114 @@ function readRequest(exclude) {
 }
 
 // ---------------------------------------------------------------- 실행
+// 다트를 던진 뒤에는 결과 카드가 설정 카드 자리에 같은 크기로 들어간다(body.is-landed).
+// 그래서 버튼을 눌러도 화면 배치가 그대로이고, 지도는 늘 카드와 같은 높이다.
+function showStage(on) {
+  $("#stage").classList.toggle("hidden", !on);
+  document.body.classList.toggle("is-landed", on);
+  geo.map?.invalidateSize();
+}
+
+// 카드에 무엇을 보일지는 상태 하나로 정한다: 던지는 중 → 제안(꽂힌 곳) → 일정 짜는 중. 표시는 CSS가 맡는다.
+function setStage(state) {
+  $("#stage").dataset.state = state;
+  // 일정 짜는 중에는 큰 동네 이름을 접고(지도 이름표에 있다) 머리글 한 줄로 줄여, 찾은 곳 목록에 자리를 내준다
+  $("#stageLabel").textContent = state === "offer" ? "다트가 꽂힌 곳"
+    : state === "planning" ? `${ui.landed.challenge.destination.name} · 일정 짜는 중` : "";
+}
+
+// 가려진 만큼만 최소한으로 움직인다. 이미 다 보이면 아무 일도 없다.
+const reveal = (sel) => $(sel).scrollIntoView({ behavior: "smooth", block: "nearest" });
+
+function setBusy(busy) {
+  ui.busy = busy;
+  $("#spinBtn").disabled = busy;
+}
+
+async function errorText(res) {
+  const detail = (await res.json().catch(() => ({}))).detail;
+  return (typeof detail === "string" ? detail : detail?.[0]?.msg) || "요청을 처리하지 못했어요. 조건을 확인해 주세요.";
+}
+
+// 1단계: 다트만 던진다 (AI 호출 없음). 꽂힌 곳을 바로 보여 주고 일정도 짤지 묻는다.
 async function start(exclude) {
   if (ui.busy) return;
-  ui.busy = true;
-  $("#spinBtn").disabled = true;
-  $("#result").classList.add("hidden");
-  $("#actionbar").classList.add("hidden");
-  $("#error").classList.add("hidden");
-  $("#slotPitch").classList.add("hidden");
-  $("#stage").classList.remove("hidden");
-
-  ui.startedAt = performance.now();
-  ui.stepStart = {};
-  ui.stepTime = {};
-  setStep("draw");
-  startTicking();
-  const slot = $("#slot");
-  slot.textContent = "다트를 던지는 중";
-  slot.className = "slot spinning";
+  setBusy(true);
+  ui.landed = null;
+  for (const sel of ["#result", "#actionbar", "#error", "#throwError"]) $(sel).classList.add("hidden");
+  setStage("throwing");
+  showStage(true);
+  $("#slot").textContent = "다트를 던지는 중";
+  $("#slot").className = "slot";
   $("#slotSub").textContent = "기간에 맞는 거리 안의 육지를 노리고 있어요";
   if (geo.map) { fx.throwId++; clearFx(); geo.darts.clearLayers(); drawRange(); startAiming(); }
-  $("#setup").scrollIntoView({ behavior: "smooth", block: "start" });
+  reveal("#mapWrap");
 
   try {
-    const res = await fetch("/api/challenges", {
+    const res = await fetch("/api/darts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(readRequest(exclude)),
     });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      throw new Error(body.detail?.[0]?.msg || "요청을 처리하지 못했어요. 조건을 확인해 주세요.");
-    }
-    await readStream(res.body, handleMessage);
+    if (!res.ok) throw new Error(await errorText(res));
+    const data = await res.json();
+    history.replaceState(null, "", `?id=${encodeURIComponent(data.id)}`);
+    await land(data.challenge);
+    showOffer(data);
+    reveal("#stage");
   } catch (err) {
-    showError(err.message || "연결이 끊겼어요. 다시 시도해 주세요.");
+    // 던지기부터 실패하면 설정 카드를 돌려놓고 그 안에서 알린다
+    stopAiming();
+    showStage(false);
+    const e = $("#throwError");
+    e.textContent = err.message || "연결이 끊겼어요. 다시 시도해 주세요.";
+    e.classList.remove("hidden");
   } finally {
-    ui.busy = false;
-    $("#spinBtn").disabled = false;
-    stopTicking();
+    setBusy(false);
+  }
+}
+
+// 꽂힌 직후: AI 없이 바로 알 수 있는 것(날씨·지도 링크)과 "일정도 짤까요?" 제안
+function showOffer({ id, challenge, weather }) {
+  ui.landed = { id, challenge };
+  const d = challenge.destination;
+  $("#landInfo").replaceChildren(
+    el("span", { class: "addr", text: d.full_name, title: `위도 ${d.lat.toFixed(4)}, 경도 ${d.lon.toFixed(4)}` }),
+    el("a", { class: "maplink", href: kakaoMapUrl(d), target: "_blank", rel: "noopener noreferrer" },
+      icon("map"), "카카오맵에서 보기"),
+    ...(weather || []).map((w) =>
+      el("span", { class: "wchip", text: `${w.date.slice(5).replace("-", "/")} ${w.summary} ${Math.round(w.temp_max)}°` })));
+  setStage("offer");
+}
+
+// 2단계: 사용자가 원할 때만 일정을 짠다. 서버는 연결과 따로 돌므로, 끊겼다 다시 붙어도 이어서 본다.
+async function planTrip() {
+  if (ui.busy || !ui.landed) return;
+  setBusy(true);
+  $("#error").classList.add("hidden");
+  $("#foundList").replaceChildren();
+  $("#foundCount").textContent = "";
+  $("#foundEmpty").classList.remove("hidden");
+  setStage("planning");
+  ui.startedAt = performance.now();
+  ui.queued = "";
+  setStep("research");
+  startTicking();
+  ui.abort = new AbortController();
+  try {
+    const res = await fetch(`/api/challenges/${encodeURIComponent(ui.landed.id)}/plan`, { method: "POST", signal: ui.abort.signal });
+    if (!res.ok) throw new Error(await errorText(res));
+    let finished = false;
+    await readStream(res.body, (msg) => {
+      finished ||= msg.type === "result" || msg.type === "error";
+      handleMessage(msg);
+    });
+    if (!finished) throw new Error("연결이 끊겼어요. 다시 누르면 이어서 볼 수 있어요.");
+  } catch (err) {
+    if (err.name !== "AbortError") showError(err.message || "연결이 끊겼어요. 다시 누르면 이어서 볼 수 있어요.");
+  } finally {
+    setBusy(false);
+    clearInterval(ui.tickTimer);
   }
 }
 
@@ -515,17 +591,18 @@ async function readStream(body, onMessage) {
 function handleMessage(msg) {
   switch (msg.type) {
     case "queued":
-      $("#slotSub").textContent = msg.message;
+      ui.queued = msg.message;
       break;
     case "stage":
+      ui.queued = "";
       setStep(msg.stage);
       break;
-    case "challenge":
-      land(msg.challenge);
+    case "found":
+      addFound(msg);
       break;
     case "result":
       setStep("done");
-      ui.current = msg.plan;
+      ui.landed = { id: msg.id, challenge: msg.plan.challenge };
       history.replaceState(null, "", `?id=${encodeURIComponent(msg.id)}`);
       renderResult(msg.plan, msg.stats);
       break;
@@ -535,57 +612,50 @@ function handleMessage(msg) {
   }
 }
 
+// 리서치가 끝나는 대로 찾은 명소·맛집을 먼저 보여 준다 (일정이 완성되기 전 볼거리)
+function addFound({ kind, items }) {
+  const list = $("#foundList");
+  list.append(...items.map((it, i) =>
+    el("li", { class: "found-chip", "data-kind": kind, title: it.note, style: `animation-delay:${i * 70}ms` },
+      icon(kind === "food" ? "meal" : "pin"), el("span", { text: it.name }))));
+  $("#foundCount").textContent = `${list.children.length}곳`;
+  $("#foundEmpty").classList.add("hidden");
+}
+
+// 일정 짜기가 실패하면 같은 다트로 다시 시도할 수 있게 제안 화면으로 돌아간다
 function showError(text) {
-  stopAiming();
-  $("#slot").classList.remove("spinning");
   const e = $("#error");
-  e.textContent = `${text} 위의 버튼으로 다시 돌릴 수 있어요.`;
+  e.textContent = text;
   e.classList.remove("hidden");
-  if (ui.activeStep) $("#steps").querySelector(`[data-step="${ui.activeStep}"]`)?.classList.remove("active");
+  setStage("offer");
 }
 
 // ---------------------------------------------------------------- 진행 상황
 function setStep(key) {
-  const now = performance.now();
-  const order = STEPS.map(([k]) => k);
-  const idx = order.indexOf(key);
-  for (const k of order.slice(0, idx)) {
-    if (ui.stepStart[k] !== undefined && ui.stepTime[k] === undefined) ui.stepTime[k] = now - ui.stepStart[k];
-    if (ui.stepStart[k] === undefined) ui.stepStart[k] = ui.stepStart[ui.activeStep] ?? now;
-  }
-  if (ui.stepStart[key] === undefined) ui.stepStart[key] = now;
-  ui.activeStep = key;
-
-  $("#steps").replaceChildren(...STEPS.map(([k, label], i) => {
-    const state = key === "done" || i < idx ? "done" : i === idx ? "active" : "";
-    const t = ui.stepTime[k];
-    return el("li", { class: state, "data-step": k },
-      el("span", { text: label }),
-      el("span", { class: "t", text: state === "done" && t && k !== "done" ? secs(t) : "" }));
-  }));
+  const idx = STEPS.findIndex(([k]) => k === key);
+  $("#steps").replaceChildren(...STEPS.map(([, label], i) =>
+    el("li", { class: key === "done" || i < idx ? "done" : i === idx ? "active" : "", title: label },
+      el("span", { text: label }))));
+  $("#stepLabel").textContent = STEPS[idx][1];
 }
 
 function startTicking() {
-  stopTicking();
+  clearInterval(ui.tickTimer);
   const tick = () => {
     const s = Math.round((performance.now() - ui.startedAt) / 1000);
-    $("#elapsed").textContent = `${s}초 경과 · 보통 30~40초 걸려요`;
+    $("#elapsed").textContent = `${s}초 · ${ui.queued || "보통 30~40초 걸려요"}`;
   };
   tick();
   ui.tickTimer = setInterval(tick, 1000);
 }
 
-function stopTicking() {
-  clearInterval(ui.tickTimer);
-  ui.tickTimer = null;
-  if (ui.startedAt && !$("#error").classList.contains("hidden")) return;
-  const s = Math.round((performance.now() - ui.startedAt) / 1000);
-  if (ui.startedAt) $("#elapsed").textContent = `총 ${s}초 걸렸어요`;
-}
-
 // ---------------------------------------------------------------- 다트 결과
 async function land(ch) {
   await animateThrow(ch);
+  fillLanding(ch);
+}
+
+function fillLanding(ch) {
   const d = ch.destination;
   const slot = $("#slot");
   slot.textContent = d.name;
@@ -594,25 +664,36 @@ async function land(ch) {
   $("#slotSub").textContent = misses
     ? `${misses}번 빗나간 끝에 육지에 꽂혔어요 · ${ch.departure}에서 직선 ${ch.distance_km}km`
     : `한 번에 육지에 꽂혔어요 · ${ch.departure}에서 직선 ${ch.distance_km}km`;
-  const pitch = $("#slotPitch");
-  pitch.textContent = `${d.full_name} · 위도 ${d.lat.toFixed(4)}, 경도 ${d.lon.toFixed(4)}`;
-  pitch.classList.remove("hidden");
 }
 
+const kakaoMapUrl = (d) => `https://map.kakao.com/link/map/${encodeURIComponent(d.name)},${d.lat},${d.lon}`;
+
 // ---------------------------------------------------------------- 결과
+// 공유 링크: 일정이 완성됐으면 일정을, 아직이면 꽂힌 곳과 "일정 짜기" 제안을 보여 준다.
 async function loadShared(id) {
+  let data;
   try {
     const res = await fetch(`/api/challenges/${encodeURIComponent(id)}`);
     if (!res.ok) throw new Error();
-    const { plan } = await res.json();
-    ui.current = plan;
-    selectNights(plan.challenge.nights);
-    if (plan.challenge.departure) $("#departure").value = plan.challenge.departure;
-    renderResult(plan);
-    showLanding(plan.challenge);
+    data = await res.json();
   } catch {
     history.replaceState(null, "", location.pathname);
+    return;
   }
+  const ch = data.challenge;
+  selectNights(ch.nights);
+  if (ch.departure) $("#departure").value = ch.departure;
+  if (data.plan) {
+    ui.landed = { id, challenge: ch };
+    renderResult(data.plan);
+    showLanding(ch);
+    return;
+  }
+  showStage(true);
+  fillLanding(ch);
+  showOffer({ id, challenge: ch, weather: data.weather });
+  showLanding(ch);
+  if (data.planning) planTrip(); // 누군가 이미 만들고 있으면 그 진행 상황에 붙는다
 }
 
 function routeOf(day) {
@@ -629,14 +710,14 @@ function renderResult(plan, stats) {
   const { challenge: ch, itinerary: it, budget } = plan;
   const dest = ch.destination;
   document.body.classList.add("has-result");
-  $("#stage").classList.add("hidden");
+  showStage(false);
 
   const head = el("header", { class: "trip-head" },
     el("div", {},
       el("h2", {}, dest.name, el("span", { class: "province", text: dest.province })),
       el("p", { class: "pitch", text: dest.full_name || "" }),
       dest.lat != null
-        ? el("a", { class: "maplink", href: `https://map.kakao.com/link/map/${encodeURIComponent(dest.name)},${dest.lat},${dest.lon}`, target: "_blank", rel: "noopener noreferrer" },
+        ? el("a", { class: "maplink", href: kakaoMapUrl(dest), target: "_blank", rel: "noopener noreferrer" },
             icon("map"), "카카오맵에서 위치 보기")
         : null,
     ),
@@ -781,18 +862,21 @@ function onAction(e) {
   const btn = e.target.closest("[data-action]");
   if (!btn) return;
   const action = btn.dataset.action;
-  if (action === "reroll" && ui.current) start([ui.current.challenge.destination.name]);
+  if (action === "reroll" && ui.landed) start([ui.landed.challenge.destination.name]);
+  else if (action === "plan") planTrip();
   else if (action === "copy") copyLink(btn);
   else if (action === "reset") reset();
 }
 
 function reset() {
+  ui.abort?.abort(); // 만들던 일정의 화면 갱신을 끊는다 (서버는 계속 만들고, 링크로 다시 볼 수 있다)
+  ui.landed = null;
   history.replaceState(null, "", location.pathname);
   document.body.classList.remove("has-result");
   if (geo.map) { fx.throwId++; clearFx(); geo.darts.clearLayers(); geo.map.invalidateSize(); drawRange(); }
   $("#result").classList.add("hidden");
   $("#actionbar").classList.add("hidden");
-  $("#stage").classList.add("hidden");
+  showStage(false);
   window.scrollTo({ top: 0, behavior: "smooth" });
   $("#spinBtn").focus({ preventScroll: true });
 }

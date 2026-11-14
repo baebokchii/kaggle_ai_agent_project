@@ -69,17 +69,12 @@ def _content_text(value: Any) -> str:
 # ---------------------------------------------------------------------------
 # 1) 챌린지 세팅: 조건 파싱 + 지도에 다트 던지기 + 날씨 (LLM 없음)
 # ---------------------------------------------------------------------------
-async def setup_challenge(ctx: Context, node_input: Any) -> str:
-  message = _content_text(node_input)
-  req: TripRequest = merge_request(message, ctx.state.get("trip_request"))
-
-  # 같은 세션에서 "다시"를 외치면 이전에 나온 곳은 제외
-  visited = list(ctx.state.get("visited") or [])
-  exclude = list(dict.fromkeys([*req.exclude, *visited]))
-
-  seed = ctx.state.get("seed")  # 평가·테스트 재현용 (같은 시드 → 같은 여행지)
-  rng = random.Random(seed) if seed is not None else None
-  throw = await dart.throw_dart(req.nights, req.departure, exclude=exclude, rng=rng)
+async def draw_challenge(
+    req: TripRequest, exclude: list[str] | None = None, rng: random.Random | None = None
+) -> dict[str, Any]:
+  """다트를 던지고 날씨를 조회해 세션 state에 넣을 값(challenge·weather·weather_text)을 만든다."""
+  throw = await dart.throw_dart(
+      req.nights, req.departure, exclude=req.exclude if exclude is None else exclude, rng=rng)
   dest = throw.landing
 
   forecast = None
@@ -95,13 +90,35 @@ async def setup_challenge(ctx: Context, node_input: Any) -> str:
       "start_date": req.start_date.isoformat() if req.start_date else None,
       "drawn_at": dt.datetime.now().isoformat(timespec="seconds"),
   }
-  ctx.state["trip_request"] = req.model_dump(mode="json")
-  ctx.state["challenge"] = challenge
-  ctx.state["weather"] = forecast
-  ctx.state["weather_text"] = describe_weather(forecast, req.start_date)
-  ctx.state["revision_count"] = 0
   logger.info("다트: %s (%.4f, %.4f) · %s 출발 · 빗나감 %d번",
               dest.full_name, dest.lat, dest.lon, throw.departure.name, len(throw.misses))
+  return {
+      "challenge": challenge,
+      "weather": forecast,
+      "weather_text": describe_weather(forecast, req.start_date),
+  }
+
+
+async def setup_challenge(ctx: Context, node_input: Any) -> str:
+  message = _content_text(node_input)
+  req: TripRequest = merge_request(message, ctx.state.get("trip_request"))
+
+  if ctx.state.get("prethrown") and ctx.state.get("challenge"):
+    # 웹: /api/darts가 이미 던져 둔 다트로 일정만 짠다. 실패 후 다시 시도해도 같은 곳을 쓴다.
+    challenge = ctx.state["challenge"]
+  else:
+    # 같은 세션에서 "다시"를 외치면 이전에 나온 곳은 제외
+    visited = list(ctx.state.get("visited") or [])
+    exclude = list(dict.fromkeys([*req.exclude, *visited]))
+    seed = ctx.state.get("seed")  # 평가·테스트 재현용 (같은 시드 → 같은 여행지)
+    rng = random.Random(seed) if seed is not None else None
+    drawn = await draw_challenge(req, exclude, rng)
+    for key, value in drawn.items():
+      ctx.state[key] = value
+    challenge = drawn["challenge"]
+
+  ctx.state["trip_request"] = req.model_dump(mode="json")
+  ctx.state["revision_count"] = 0
   return "지도에 다트를 던져 정한 여행지를 리서치하세요.\n" + prompts.challenge_brief(challenge)
 
 

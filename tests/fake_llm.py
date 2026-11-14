@@ -80,7 +80,7 @@ class FakeLlm(BaseLlm):
     self.calls.append(role)
     grounding = None
     if role in ("spots", "food", "logistics"):
-      text = f"- {role} 리서치 결과"
+      text = f"- {role} 리서치 결과\n- 테스트 {role} / 시내 / 가 볼 만함"
       grounding = types.GroundingMetadata(grounding_chunks=[
           types.GroundingChunk(web=types.GroundingChunkWeb(
               uri=f"https://example.com/{role}", title=f"{role} 출처"))

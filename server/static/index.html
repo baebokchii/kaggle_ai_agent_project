@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" crossorigin="">
-  <link rel="stylesheet" href="/static/style.css?v=22">
+  <link rel="stylesheet" href="/static/style.css?v=30">
 </head>
 <body>
   <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -147,24 +147,51 @@
           <svg class="ico" aria-hidden="true"><use href="#i-dart"/></svg>
           <span>다트 던지기</span>
         </button>
+        <p class="error hidden" id="throwError" role="alert"></p>
       </form>
       <figure class="map-wrap" id="mapWrap">
         <div class="map" id="map" role="img" aria-label="다트를 던질 지도"></div>
         <figcaption class="map-legend" id="mapLegend"></figcaption>
       </figure>
-    </section>
-
-    <section class="stage hidden" id="stage" aria-live="polite">
-      <div class="draw">
-        <p class="slot" id="slot">다트를 던지는 중</p>
-        <p class="slot-sub" id="slotSub">기간에 맞는 거리 안의 육지를 노리고 있어요</p>
-        <p class="slot-pitch hidden" id="slotPitch"></p>
+      <div class="stage hidden" id="stage" data-state="throwing" aria-live="polite">
+        <div class="stage-head">
+          <p class="eyebrow" id="stageLabel"></p>
+          <button class="btn ghost" type="button" data-action="reset">조건 바꾸기</button>
+        </div>
+        <div class="draw">
+          <p class="slot" id="slot">다트를 던지는 중</p>
+          <p class="slot-sub" id="slotSub">기간에 맞는 거리 안의 육지를 노리고 있어요</p>
+          <div class="land-info" id="landInfo"></div>
+        </div>
+        <div class="waiting" aria-hidden="true"><span></span><span></span><span></span></div>
+        <div class="progress">
+          <ol class="steps" id="steps"></ol>
+          <p class="step-now"><strong id="stepLabel"></strong><span class="elapsed" id="elapsed"></span></p>
+          <div class="found">
+            <h3>이 동네에서 찾은 곳 <span id="foundCount"></span></h3>
+            <p class="found-empty" id="foundEmpty">명소와 맛집을 검색하고 있어요. 찾는 대로 여기에 보여 드려요.</p>
+            <ul id="foundList"></ul>
+          </div>
+          <p class="leave">창을 닫아도 계속 만들어요. 이 링크로 다시 오면 볼 수 있어요.
+            <button class="linkbtn" type="button" data-action="copy">
+              <svg class="ico" aria-hidden="true"><use href="#i-link"/></svg><span>링크 복사</span>
+            </button>
+          </p>
+        </div>
+        <p class="error hidden" id="error" role="alert"></p>
+        <div class="offer">
+          <p class="offer-q">이 동네로 여행 일정도 짜드릴까요?</p>
+          <p class="hint">명소와 맛집을 검색해 일정과 예산을 만들어요. 30~40초쯤 걸려요.</p>
+          <div class="offer-actions">
+            <button class="btn primary" type="button" data-action="plan">
+              <svg class="ico" aria-hidden="true"><use href="#i-map"/></svg><span>일정 짜기</span>
+            </button>
+            <button class="btn" type="button" data-action="reroll">
+              <svg class="ico" aria-hidden="true"><use href="#i-refresh"/></svg><span>다시 던지기</span>
+            </button>
+          </div>
+        </div>
       </div>
-      <div class="progress">
-        <ol class="steps" id="steps"></ol>
-        <p class="elapsed" id="elapsed"></p>
-      </div>
-      <p class="error hidden" id="error" role="alert"></p>
     </section>
 
     <section class="result hidden" id="result" aria-label="여행 일정"></section>
@@ -185,6 +212,6 @@
       지도 · 주소 데이터 © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> 기여자 (Nominatim 주소 검색) · 지도 타일 스타일 <a href="https://www.hotosm.org/" target="_blank" rel="noopener noreferrer">HOT</a>, 호스팅 <a href="https://openstreetmap.fr/" target="_blank" rel="noopener noreferrer">OSM France</a></p>
   </footer>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js" crossorigin=""></script>
-  <script src="/static/app.js?v=21"></script>
+  <script src="/static/app.js?v=28"></script>
 </body>
 </html>

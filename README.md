@@ -100,25 +100,37 @@ adk web .
 | 메서드 | 경로 | 설명 |
 |---|---|---|
 | `GET` | `/api/meta` | 기간·출발지·예산 스타일 선택지와 여행지 목록 |
-| `POST` | `/api/challenges` | 챌린지 실행. Server-Sent Events로 진행 상황을 스트리밍 |
-| `GET` | `/api/challenges/{id}` | 저장된 결과 조회 |
+| `POST` | `/api/darts` | 다트만 던집니다(LLM 호출 없음). 꽂힌 곳과 세션 ID를 돌려줍니다 |
+| `POST` | `/api/challenges/{id}/plan` | 그 다트로 일정을 짭니다. Server-Sent Events로 진행 상황을 스트리밍 |
+| `POST` | `/api/challenges` | 던지기부터 일정까지 한 번에 (SSE) |
+| `GET` | `/api/challenges/{id}` | 꽂힌 곳과, 완성됐다면 일정 조회 (공유 링크용) |
 | `GET` | `/healthz` | 헬스 체크 |
 
+웹 화면은 두 단계로 움직입니다. 다트가 꽂히면 동네 이름·거리·날씨를 바로 보여 주고 "일정도 짜드릴까요?"를 묻습니다. 원할 때만 일정을 짜므로, 다시 던지기만 반복하는 동안에는 LLM을 부르지 않습니다.
+
 ```bash
-curl -N -X POST localhost:8000/api/challenges \
+# 1) 다트 던지기
+curl -X POST localhost:8000/api/darts \
   -H 'Content-Type: application/json' \
   -d '{"nights": 1, "departure": "서울", "travelers": 2, "budget_level": "보통", "start_date": null, "exclude": []}'
+# → {"id":"...","challenge":{"destination":{"name":"영양군 영양읍","lat":36.66,"lon":129.11,...},"misses":[...],...},"weather":null}
+
+# 2) 그 다트로 일정 짜기
+curl -N -X POST localhost:8000/api/challenges/<id>/plan
 ```
 
 스트림 이벤트 순서:
 
 ```
 {"type":"session","id":"..."}
-{"type":"challenge","challenge":{"destination":{"name":"영양군 영양읍","lat":36.66,"lon":129.11,...},"misses":[...],...}}   ← 다트 결과가 먼저 도착
 {"type":"stage","stage":"research",...}
+{"type":"found","kind":"food","items":[{"name":"...","note":"..."}]}    ← 리서치가 찾은 맛집·명소가 일정보다 먼저 도착
+{"type":"found","kind":"spots","items":[...]}
 {"type":"stage","stage":"plan",...} … {"type":"stage","stage":"done",...}
 {"type":"result","id":"...","plan":{challenge, itinerary, budget, weather, sources, review}}
 ```
+
+일정 짜기는 브라우저 연결과 따로 돌아갑니다. 창을 닫아도 끝까지 만들고, 같은 ID로 다시 요청하면 지금까지의 진행 상황부터 이어서 받습니다. 이미 완성됐다면 `result` 하나만 옵니다. (실행 상태는 서버 메모리에 있으므로 서버를 재시작하면 만들던 일정은 사라집니다.)
 
 ---
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from .budget import format_krw
@@ -66,3 +67,26 @@ def render_markdown(plan: dict[str, Any]) -> str:
 
   out.append("\n---\n다른 곳으로 다시 돌리려면 \"다시\"라고 입력하세요.")
   return "\n".join(out)
+
+
+_BULLET = re.compile(r"^\s*(?:[-*•]|\d+[.)])\s+(.*)$")
+
+
+def found_items(notes: str, limit: int = 8) -> list[dict[str, str]]:
+  """리서치 메모(불릿 목록)에서 '이름 / 설명' 꼴의 줄만 골라 화면에 미리 보여 줄 항목으로 만든다.
+
+  구분자(/ 또는 :)가 없는 줄은 동네 묶음 제목 같은 것이라 건너뛴다.
+  """
+  items: list[dict[str, str]] = []
+  for line in (notes or "").splitlines():
+    m = _BULLET.match(line)
+    if not m:
+      continue
+    parts = [p.strip() for p in re.split(r"\s+/\s+|:\s+", m.group(1).replace("*", ""), maxsplit=2)]
+    name = parts[0]
+    if len(parts) < 2 or not name or len(name) > 30 or not parts[1]:
+      continue
+    items.append({"name": name, "note": " · ".join(parts[1:])[:80]})
+    if len(items) >= limit:
+      break
+  return items

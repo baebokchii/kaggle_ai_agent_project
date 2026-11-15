@@ -2,9 +2,11 @@
 
 1. 출발지를 중심으로 기간별 거리 범위(도넛 모양) 안에서 면적이 고르게 좌표를 뽑는다.
 2. 대략적인 남한 육지 윤곽(_LAND)으로 확실한 바다는 API 호출 없이 거른다.
-3. OpenStreetMap Nominatim 역지오코딩으로 그 좌표의 읍·면·동을 찾는다.
-   - 군 단위만 나오고 읍·면·동·리가 없으면 바다(연안 해역)나 사람 없는 산속으로 보고 다시 던진다.
-   - 북한(kp)이나 해외는 다시 던진다.
+3. 역지오코딩으로 그 좌표의 읍·면·동을 찾는다.
+   - NAVER_MAP_KEY_ID와 NAVER_MAP_KEY_SECRET이 있으면 네이버 Reverse Geocoding(법정동)을 쓴다.
+     주소가 없으면(바다) 다시 던진다. 산속도 법정 읍·면·리가 있어 그대로 꽂힌다.
+   - 키가 없거나 네이버 호출이 실패하면 OpenStreetMap Nominatim을 쓴다. 군 단위만 나오고
+     읍·면·동·리가 없으면 바다(연안 해역)나 사람 없는 산속으로 보고, 북한(kp)이나 해외도 다시 던진다.
 
 Nominatim 이용 정책: 초당 1회 이하, 앱을 알 수 있는 User-Agent, 결과 캐싱, OSM 출처 표시.
 """
@@ -20,6 +22,7 @@ import os
 import random
 import time
 from typing import Any, Awaitable, Callable
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -77,7 +80,7 @@ def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 
 # ---------------------------------------------------------------------------
 # 대략적인 남한 육지 윤곽 (경도, 위도). 바다를 API 호출 없이 거르는 1차 필터일 뿐이고,
-# 최종 판정은 Nominatim이 한다. 해안선 근처 바다가 일부 포함되는 것은 의도된 것.
+# 최종 판정은 역지오코딩(네이버 또는 Nominatim)이 한다. 해안선 근처 바다가 일부 포함되는 것은 의도된 것.
 # 북쪽 경계는 휴전선보다 약 10km 남쪽으로 잡아 민간인 통제구역(민통선 이북)을 피한다.
 # ---------------------------------------------------------------------------
 _MAINLAND: tuple[tuple[float, float], ...] = (
@@ -128,32 +131,55 @@ def sample_point(dep: Departure, nights: int, rng: random.Random) -> tuple[float
 
 
 # ---------------------------------------------------------------------------
-# Nominatim 역지오코딩
+# 역지오코딩: 네이버 Reverse Geocoding (키가 있을 때) → 없거나 실패하면 Nominatim
 # ---------------------------------------------------------------------------
+NAVER_REVERSE_URL = os.getenv(
+    "TRAVEL_NAVER_REVERSE_URL", "https://maps.apigw.ntruss.com/map-reversegeocode/v2/gc")
 NOMINATIM_URL = os.getenv("TRAVEL_NOMINATIM_URL", "https://nominatim.openstreetmap.org/reverse")
 USER_AGENT = os.getenv("TRAVEL_GEOCODER_UA", "travel-roulette-dart/1.0")
 _MIN_INTERVAL = 1.1  # 초 — 공용 Nominatim 정책(초당 1회)보다 살짝 여유
 _lock = asyncio.Lock()
 _last_call = 0.0
 _cache: dict[tuple[float, float], dict[str, Any] | None] = {}
+_naver_off = False  # 인증·구독 오류가 한 번 나면 이 프로세스에서는 Nominatim만 쓴다
 
 
 class GeocodeError(RuntimeError):
   pass
 
 
-def _fetch_sync(url: str) -> dict[str, Any]:
-  req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept-Language": "ko"})
+def naver_keys() -> tuple[str, str] | None:
+  """네이버 Maps의 Client ID와 Secret. 둘 다 있어야 네이버 주소 변환을 쓴다."""
+  key_id, secret = os.getenv("NAVER_MAP_KEY_ID"), os.getenv("NAVER_MAP_KEY_SECRET")
+  return (key_id, secret) if key_id and secret else None
+
+
+def geocoder_name() -> str:
+  return "naver" if naver_keys() and not _naver_off else "nominatim"
+
+
+def _fetch_sync(url: str, headers: dict[str, str]) -> dict[str, Any]:
+  req = urllib.request.Request(url, headers=headers)
   with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310 (고정 URL)
     return json.loads(resp.read().decode("utf-8"))
 
 
-async def reverse_geocode(lat: float, lon: float) -> dict[str, Any] | None:
+async def _naver_reverse(lat: float, lon: float, keys: tuple[str, str]) -> dict[str, Any] | None:
+  """좌표 → 네이버 법정동 주소. 바다처럼 주소가 없는 곳이면 None. 초당 호출 제한이 없어 줄 세우지 않는다."""
+  query = urllib.parse.urlencode({"coords": f"{lon},{lat}", "output": "json", "orders": "legalcode"})
+  headers = {"x-ncp-apigw-api-key-id": keys[0], "x-ncp-apigw-api-key": keys[1]}
+  data = await asyncio.to_thread(_fetch_sync, f"{NAVER_REVERSE_URL}?{query}", headers)
+  status = data.get("status") or {}
+  if status.get("code") == 3:  # no results: 바다·국외
+    return None
+  if status.get("code") != 0:
+    raise GeocodeError(f"네이버 주소 변환 실패: {status}")
+  return {"source": "naver", "results": data.get("results") or []}
+
+
+async def _nominatim_reverse(lat: float, lon: float) -> dict[str, Any] | None:
   """좌표 → Nominatim 결과(jsonv2). 해당 위치에 아무것도 없으면 None."""
   global _last_call
-  key = (round(lat, 3), round(lon, 3))
-  if key in _cache:
-    return _cache[key]
   query = urllib.parse.urlencode({
       "format": "jsonv2", "lat": lat, "lon": lon, "zoom": 14,
       "addressdetails": 1, "accept-language": "ko",
@@ -163,12 +189,37 @@ async def reverse_geocode(lat: float, lon: float) -> dict[str, Any] | None:
     if wait > 0:
       await asyncio.sleep(wait)
     try:
-      data = await asyncio.to_thread(_fetch_sync, f"{NOMINATIM_URL}?{query}")
+      data = await asyncio.to_thread(
+          _fetch_sync, f"{NOMINATIM_URL}?{query}", {"User-Agent": USER_AGENT, "Accept-Language": "ko"})
     except Exception as e:
       raise GeocodeError(f"주소 변환 실패: {e}") from e
     finally:
       _last_call = time.monotonic()
-  result = None if data.get("error") else data
+  return None if data.get("error") else data
+
+
+async def reverse_geocode(lat: float, lon: float) -> dict[str, Any] | None:
+  """좌표 → 주소 원본(네이버 또는 Nominatim). 해당 위치에 아무것도 없으면 None."""
+  global _naver_off
+  key = (round(lat, 3), round(lon, 3))
+  if key in _cache:
+    return _cache[key]
+  keys = naver_keys()
+  if keys and not _naver_off:
+    try:
+      result = await _naver_reverse(lat, lon, keys)
+      _cache[key] = result
+      return result
+    except urllib.error.HTTPError as e:
+      if e.code in (401, 403):  # 키가 틀렸거나 콘솔에서 Reverse Geocoding을 켜지 않음
+        _naver_off = True
+        logger.warning("네이버 주소 변환 권한이 없어 Nominatim으로 바꿉니다 (HTTP %s). "
+                       "콘솔에서 Reverse Geocoding을 켰는지 확인하세요.", e.code)
+      else:
+        logger.warning("네이버 주소 변환 실패, 이번에는 Nominatim을 씁니다: %s", e)
+    except Exception as e:
+      logger.warning("네이버 주소 변환 실패, 이번에는 Nominatim을 씁니다: %s", e)
+  result = await _nominatim_reverse(lat, lon)
   _cache[key] = result
   return result
 
@@ -217,9 +268,11 @@ class Landing:
 
 
 def parse_landing(lat: float, lon: float, data: dict[str, Any] | None) -> tuple[Landing | None, str]:
-  """Nominatim 결과를 Landing으로. 실패하면 (None, 이유)."""
+  """역지오코딩 결과(네이버 또는 Nominatim)를 Landing으로. 실패하면 (None, 이유)."""
   if not data:
     return None, "빈 땅"
+  if data.get("source") == "naver":
+    return _parse_naver(lat, lon, data)
   addr = data.get("address") or {}
   if addr.get("country_code") != "kr":
     return None, "국외"
@@ -238,6 +291,25 @@ def parse_landing(lat: float, lon: float, data: dict[str, Any] | None) -> tuple[
   short = short_sido(sido)
   full = " ".join(x for x in (sido, sigungu, dong, village) if x)
   return Landing(lat, lon, sido, short, sigungu, dong, village, full), ""
+
+
+def _parse_naver(lat: float, lon: float, data: dict[str, Any]) -> tuple[Landing | None, str]:
+  """네이버 법정동 결과: area1 시도, area2 시군구('성남시 분당구'), area3 읍·면·동, area4 리."""
+  legal = next((r for r in data.get("results", []) if r.get("name") == "legalcode"), None)
+  if not legal:
+    return None, "빈 땅"
+  region = legal.get("region") or {}
+
+  def area(i: int) -> str:
+    return ((region.get(f"area{i}") or {}).get("name") or "").strip()
+
+  if area(0) != "kr":
+    return None, "국외"
+  sido, sigungu, dong, village = area(1), area(2), area(3), area(4)
+  if not dong:
+    return None, "빈 땅"
+  full = " ".join(x for x in (sido, sigungu, dong, village) if x)
+  return Landing(lat, lon, sido, short_sido(sido), sigungu, dong, village, full), ""
 
 
 def trip_rule(landing: Landing, nights: int) -> str:

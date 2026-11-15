@@ -32,7 +32,7 @@ Google ADK 2.x의 Workflow(그래프 기반 오케스트레이션)와 Gemini, Go
 
 | 기능 | 설명 |
 |---|---|
-| 지도에 다트 던지기 | 출발지 기준으로 기간별 거리 범위(당일치기 20 ~ 130km, 1박 2일 40 ~ 300km, 2박 3일 60 ~ 450km, 3박 이상은 80km 밖 전국) 안에서 면적이 고르게 좌표를 뽑습니다. OpenStreetMap 주소 검색으로 그 좌표의 읍, 면, 동을 찾습니다. 바다, 북한, 민간인 통제구역에 떨어지면 다시 던집니다. |
+| 지도에 다트 던지기 | 출발지 기준으로 기간별 거리 범위(당일치기 20 ~ 130km, 1박 2일 40 ~ 300km, 2박 3일 60 ~ 450km, 3박 이상은 80km 밖 전국) 안에서 면적이 고르게 좌표를 뽑습니다. 네이버 주소 검색(키가 없으면 OpenStreetMap)으로 그 좌표의 읍, 면, 동을 찾습니다. 바다, 북한, 민간인 통제구역에 떨어지면 다시 던집니다. |
 | 병렬 리서치 | 명소 / 맛집 / 교통, 숙박 리서처 3명이 동시에 Google 검색을 하고 출처 링크를 모아 보여 줍니다. |
 | 검수 루프 | 일정 작성 → AI 검수자가 동선, 식사, 이동 시간을 점검 → 문제가 있으면 수정 에이전트가 고칩니다. |
 | 예산 계산 | LLM은 항목별 단가와 수량만 추정하고 합계, 예비비(10%), 1인당 금액은 파이썬이 계산합니다. |
@@ -87,6 +87,15 @@ python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env   # GOOGLE_API_KEY 입력
 ```
+
+#### 네이버 지도와 주소 검색 (선택)
+
+`NAVER_MAP_KEY_ID`가 있으면 네이버 지도를, 없거나 인증에 실패하면 OpenStreetMap 지도를 보여 줍니다. `NAVER_MAP_KEY_SECRET`까지 있으면 다트가 꽂힌 곳의 주소도 네이버 Reverse Geocoding으로 찾고, 없거나 실패하면 OpenStreetMap Nominatim을 씁니다. 다트 던지기와 일정 짜기는 어느 쪽이든 똑같이 동작합니다.
+
+1. [NAVER Cloud Platform 콘솔](https://console.ncloud.com)에서 **Services → Application Services → Maps → Application 등록**을 누릅니다.
+2. API는 **Dynamic Map**과 **Reverse Geocoding**을 고르고, **Web 서비스 URL**에 `http://localhost:8000`과 배포할 주소를 넣습니다. 등록하지 않은 주소에서는 인증에 실패합니다.
+3. 발급된 Client ID를 `.env`의 `NAVER_MAP_KEY_ID`에, Client Secret을 `NAVER_MAP_KEY_SECRET`에 넣습니다. Client ID는 브라우저에 그대로 전달되고(등록한 주소에서만 통하는 공개용 키), Secret은 서버에서만 씁니다.
+4. 무료 이용량을 넘으면 과금되므로 콘솔에서 이용 한도와 알림을 설정해 두세요.
 
 ### 웹 서비스
 
@@ -240,7 +249,7 @@ INFO travel_roulette.metrics run_metrics {"duration_s": 41.3, "llm_calls": 8, "t
 ```
 travel_roulette/          ADK 앱 패키지 (adk web이 인식)
 ├── agent.py              Workflow 그래프와 노드 정의 (root_agent, app)
-├── dart.py               지도에 다트 던지기 (거리 범위 샘플링, 육지 판정, Nominatim 주소 검색)
+├── dart.py               지도에 다트 던지기 (거리 범위 샘플링, 육지 판정, 네이버·Nominatim 주소 검색)
 ├── request_parser.py     채팅 메시지 → 여행 조건 파싱 (TripRequest)
 ├── prompts.py            에이전트 지시문 (Instruction Provider)
 ├── schemas.py            일정, 검수, 예산 구조화 출력 스키마
@@ -282,11 +291,13 @@ legacy/                   Kaggle 캡스톤 원본 코드 (2025)
 - 예산은 검색 결과와 가이드라인으로 낸 추정치입니다.
 - 거리 판단은 직선거리 기준이라 실제 이동 시간과 다를 수 있습니다(교통 리서처가 실제 소요 시간을 조사해 보완합니다).
 - 바다를 빠르게 거르는 육지 윤곽은 손으로 그린 근사치라 윤곽 밖의 작은 섬에는 다트가 꽂히지 않습니다. 민간인 통제구역 경계도 근사치입니다.
-- 주소 검색은 공용 OpenStreetMap Nominatim을 씁니다. 초당 1회 제한이 있어 서버 전체에서 순서대로 호출합니다. 많은 사용자를 받으려면 자체 Nominatim 서버(`TRAVEL_NOMINATIM_URL`)가 필요합니다.
+- 네이버 키가 없으면 주소 검색은 공용 OpenStreetMap Nominatim을 씁니다. 초당 1회 제한이 있어 서버 전체에서 순서대로 호출합니다. 많은 사용자를 받으려면 네이버 키나 자체 Nominatim 서버(`TRAVEL_NOMINATIM_URL`)가 필요합니다.
+- 네이버 주소 검색은 산속에도 법정 읍, 면, 리를 돌려주므로, 사람이 살지 않는 산에 꽂혀도 그 읍, 면을 여행지로 삼습니다. Nominatim은 이런 곳을 빈 땅으로 보고 다시 던집니다.
 
 ## 데이터 출처
 
-- 지도와 주소: © [OpenStreetMap](https://www.openstreetmap.org/copyright) 기여자 (ODbL). 지도 타일과 [Nominatim](https://nominatim.org/) 주소 검색을 이용합니다.
+- 지도: [네이버 지도 API](https://navermaps.github.io/maps.js.ncp/) (© NAVER Corp.). 키가 없으면 © [OpenStreetMap](https://www.openstreetmap.org/copyright) 기여자 (ODbL)의 HOT 타일을 씁니다.
+- 주소: 네이버 [Reverse Geocoding](https://api.ncloud-docs.com/docs/application-maps-overview) (© NAVER Corp.). 키가 없으면 © [OpenStreetMap](https://www.openstreetmap.org/copyright) 기여자 (ODbL)의 [Nominatim](https://nominatim.org/) 주소 검색을 씁니다.
 - 날씨: [Open-Meteo](https://open-meteo.com/)
 
 ---

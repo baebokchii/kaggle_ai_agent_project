@@ -58,6 +58,94 @@ def test_parse_landing():
   assert dart.parse_landing(36.0, 125.5, None) == (None, "빈 땅")
 
 
+# 실제 네이버 Reverse Geocoding 응답(2026-11, orders=legalcode)에서 가져온 지역
+def _naver(*areas):
+  region = {f"area{i}": {"name": name} for i, name in enumerate(areas)}
+  return {"source": "naver", "results": [{"name": "legalcode", "region": region}]}
+
+
+NAVER = {
+    "damyang": _naver("kr", "전남광주통합특별시", "담양군", "담양읍", "학동리"),
+    "seoul": _naver("kr", "서울특별시", "서초구", "서초동", ""),
+    "jeju": _naver("kr", "제주특별자치도", "제주시", "아라일동", ""),
+    "sejong": _naver("kr", "세종특별자치시", "", "조치원읍", "신안리"),
+}
+
+
+def test_parse_naver_landing():
+  lm, _ = dart.parse_landing(35.33, 127.02, NAVER["damyang"])
+  assert (lm.name, lm.sido_short, lm.village) == ("담양군 담양읍", "전남광주", "학동리")
+  assert lm.full_name == "전남광주통합특별시 담양군 담양읍 학동리"
+  lm, _ = dart.parse_landing(37.4979, 127.0276, NAVER["seoul"])
+  assert (lm.name, lm.full_name) == ("서초구 서초동", "서울특별시 서초구 서초동")
+  lm, _ = dart.parse_landing(33.45, 126.56, NAVER["jeju"])
+  assert dart.trip_rule(lm, 0) and not dart.trip_rule(lm, 1)
+  lm, _ = dart.parse_landing(36.6, 127.3, NAVER["sejong"])
+  assert (lm.name, lm.sido_short) == ("조치원읍", "세종")
+  assert dart.parse_landing(35.5, 126.2, {"source": "naver", "results": []}) == (None, "빈 땅")
+  assert dart.parse_landing(36.0, 127.0, _naver("kr", "충청남도", "논산시", "", "")) == (None, "빈 땅")
+
+
+@pytest.fixture
+def geo_calls(monkeypatch):
+  """네이버·Nominatim 호출을 가로채 기록한다. 캐시와 '네이버 끔' 상태는 테스트마다 비운다."""
+  calls = []
+  monkeypatch.setattr(dart, "_cache", {})
+  monkeypatch.setattr(dart, "_naver_off", False)
+  monkeypatch.setattr(dart, "_MIN_INTERVAL", 0)
+
+  def fake_fetch(url, headers):
+    calls.append((url, headers))
+    if url.startswith(dart.NAVER_REVERSE_URL):
+      return {"status": {"code": 0}, "results": NAVER["seoul"]["results"]}
+    return {"address": NOMINATIM["seoul"]}
+
+  monkeypatch.setattr(dart, "_fetch_sync", fake_fetch)
+  return calls
+
+
+async def test_reverse_geocode_prefers_naver_with_both_keys(monkeypatch, geo_calls):
+  monkeypatch.setenv("NAVER_MAP_KEY_ID", "id")
+  monkeypatch.setenv("NAVER_MAP_KEY_SECRET", "secret")
+  data = await dart.reverse_geocode(37.4979, 127.0276)
+  assert data["source"] == "naver" and dart.geocoder_name() == "naver"
+  url, headers = geo_calls[0]
+  assert "coords=127.0276%2C37.4979" in url
+  assert headers == {"x-ncp-apigw-api-key-id": "id", "x-ncp-apigw-api-key": "secret"}
+
+
+async def test_reverse_geocode_uses_nominatim_without_secret(monkeypatch, geo_calls):
+  monkeypatch.setenv("NAVER_MAP_KEY_ID", "id")
+  monkeypatch.delenv("NAVER_MAP_KEY_SECRET", raising=False)
+  data = await dart.reverse_geocode(37.5, 127.0)
+  assert "address" in data and dart.geocoder_name() == "nominatim"
+  assert geo_calls[0][0].startswith(dart.NOMINATIM_URL)
+
+
+async def test_naver_auth_error_switches_to_nominatim(monkeypatch, geo_calls):
+  monkeypatch.setenv("NAVER_MAP_KEY_ID", "id")
+  monkeypatch.setenv("NAVER_MAP_KEY_SECRET", "secret")
+  fallback = dart._fetch_sync
+
+  def unsubscribed(url, headers):
+    if url.startswith(dart.NAVER_REVERSE_URL):
+      raise dart.urllib.error.HTTPError(url, 401, "Unauthorized", None, None)
+    return fallback(url, headers)
+
+  monkeypatch.setattr(dart, "_fetch_sync", unsubscribed)
+  assert "address" in await dart.reverse_geocode(37.5, 127.0)
+  assert dart.geocoder_name() == "nominatim"  # 이후로는 네이버를 다시 부르지 않는다
+  await dart.reverse_geocode(36.0, 128.0)
+  assert all(url.startswith(dart.NOMINATIM_URL) for url, _ in geo_calls)
+
+
+async def test_naver_no_results_means_sea(monkeypatch, geo_calls):
+  monkeypatch.setenv("NAVER_MAP_KEY_ID", "id")
+  monkeypatch.setenv("NAVER_MAP_KEY_SECRET", "secret")
+  monkeypatch.setattr(dart, "_fetch_sync", lambda url, headers: {"status": {"code": 3, "name": "no results"}})
+  assert await dart.reverse_geocode(35.5, 126.2) is None
+
+
 def test_short_sido_handles_new_province_names():
   assert dart.short_sido("경상북도") == "경북"
   assert dart.short_sido("전남광주통합특별시") == "전남광주"

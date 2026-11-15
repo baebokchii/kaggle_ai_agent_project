@@ -133,9 +133,11 @@ body.is-landed .setup-form { display: none; }
 /* ---------- map ---------- */
 .map-wrap { margin: 0; position: relative; display: flex; flex-direction: column; min-height: 340px; }
 .map {
-  flex: 1; min-height: 340px; overflow: hidden;
+  flex: 1; min-height: 340px; overflow: hidden; position: relative;
   background: var(--surface-2); border: 6px solid var(--surface);
 }
+/* 네이버 지도 캔버스: 네이버가 넣는 인라인 position·크기와 상관없이 #map 안쪽을 꽉 채운다 */
+.map-canvas { position: absolute !important; inset: 0; z-index: 0; } /* 네이버 내부 z-index가 다트 연출 위로 올라오지 않게 가둔다 */
 .map-legend {
   position: absolute; top: var(--s3); right: var(--s3); z-index: 900; max-width: calc(100% - 80px);
   display: grid; gap: 2px; padding: var(--s2) var(--s3); border-radius: var(--r-sm);
@@ -145,6 +147,8 @@ body.is-landed .setup-form { display: none; }
 .map-legend .key { display: inline-flex; align-items: center; gap: 6px; }
 .map-legend .ring { width: 14px; height: 14px; border-radius: 50%; border: 2px dashed var(--target); }
 .map-legend .hole { width: 14px; height: 14px; border-radius: 50%; background: color-mix(in srgb, var(--ink) 18%, transparent); }
+/* 아래 .leaflet-* 규칙은 네이버 지도 키가 없을 때 쓰는 OpenStreetMap 대체 지도용이다.
+   네이버 지도는 타일 영역을 고를 공개 클래스가 없어 색 보정·다크 모드 반전을 하지 않는다. */
 .leaflet-container { font-family: var(--sans); background: var(--bg); }
 .leaflet-tile-pane { filter: saturate(.8) brightness(1.04); } /* 색을 살짝 눌러 다트와 범위 원이 도드라지게 */
 @media (prefers-color-scheme: dark) {
@@ -153,6 +157,9 @@ body.is-landed .setup-form { display: none; }
 :root[data-theme="dark"] .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(.92) saturate(.4) contrast(.9); }
 .leaflet-control-attribution { font-size: 11px; }
 .leaflet-bar a { color: var(--ink); }
+body:not([data-map="naver"]) .map-credit.naver, body:not([data-map="osm"]) .map-credit.osm { display: none; }
+body:not([data-geocoder="naver"]) .geo-credit.naver, body:not([data-geocoder="nominatim"]) .geo-credit.nominatim { display: none; }
+.dep-dot { display: block; width: 12px; height: 12px; box-sizing: border-box; border-radius: 50%; border: 2px solid var(--ink); background: var(--surface); }
 .dep-label { font-size: 12px; font-weight: 700; color: var(--ink); background: var(--surface); border: 0; border-radius: 0; padding: 2px 8px; white-space: nowrap; box-shadow: 2px 2px 0 var(--face-b); }
 .dart-icon { background: none; border: 0; }
 .dart-label { display: block; white-space: nowrap; font-size: 14px; font-weight: 800; letter-spacing: -0.02em; color: var(--accent-ink); background: var(--accent); padding: 3px 10px; box-shadow: 3px 3px 0 var(--accent-b); animation: land .4s cubic-bezier(.16, 1, .3, 1) backwards; }

@@ -1,4 +1,4 @@
-// 랜덤 여행 챌린지 프론트엔드 (빌드 도구 없는 바닐라 JS + Leaflet 지도)
+// 랜덤 여행 챌린지 프론트엔드 (빌드 도구 없는 바닐라 JS + 네이버 지도, 키가 없으면 Leaflet·OpenStreetMap)
 // LLM이 만든 텍스트와 주소는 모두 textContent로만 넣어 XSS를 막는다.
 
 const $ = (sel) => document.querySelector(sel);
@@ -62,6 +62,7 @@ async function init() {
   const meta = await fetch("/api/meta").then((r) => r.json());
   for (const d of meta.departures) ui.departures[d.name] = d;
   for (const d of meta.durations) ui.ranges[d.nights] = d.range_km;
+  document.body.dataset.geocoder = meta.geocoder || "nominatim";
 
   const seg = $("#durations");
   for (const d of meta.durations) {
@@ -85,11 +86,12 @@ async function init() {
   $("#departure").addEventListener("change", drawRange);
   updateOptSummary();
   $("#heroDart")?.insertAdjacentHTML("beforeend", DART_PARTS);
-  initMap();
 
   $("#setupForm").addEventListener("submit", (e) => { e.preventDefault(); start([]); });
   $("#actionbar").addEventListener("click", onAction);
   $("#stage").addEventListener("click", onAction);
+  // 공유 링크의 다트를 꽂으려면 지도가 먼저 떠 있어야 한다
+  await initMap(meta.naver_map_key);
 
   const shared = new URLSearchParams(location.search).get("id");
   if (shared) loadShared(shared);
@@ -106,7 +108,13 @@ function selectNights(n) {
 }
 
 // ---------------------------------------------------------------- 지도
-const geo = { map: null, range: null, darts: null, view: null };
+// 지도 엔진은 둘 중 하나다: NAVER_MAP_KEY_ID가 있으면 네이버 지도, 없거나 인증에 실패하면 OpenStreetMap(Leaflet).
+// 다트 연출과 범위 원은 아래 엔진 겉면(size·toPoint·fit·circle·html …)만 쓰므로 어느 쪽이든 똑같이 돈다.
+const geo = { map: null, view: null, ro: null, naverFailed: false };
+const KOREA = [[33.1, 125.6], [38.6, 129.8]];
+const MAP_PAD = 16;
+const LEAFLET = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min";
+const NAVER_MAPS = "https://oapi.map.naver.com/openapi/v3/maps.js";
 // 다트: 끝(촉)이 (6, 58)에 오도록 그린 64×64 그림을 DART_PX 크기로 보여 준다. 촉 기준으로 지도에 꽂힌다.
 // 색(그라디언트)은 index.html의 <defs>에 있다.
 const DART_PX = 104;
@@ -128,27 +136,134 @@ function dartSvg(withShadow) {
     DART_BODY + "</svg>";
 }
 
-function initMap() {
+function loadAsset(tag, attrs) {
+  return new Promise((resolve, reject) =>
+    document.head.append(el(tag, { ...attrs, onload: resolve, onerror: reject })));
+}
+
+// 네이버 지도 JS API v3. 키는 콘솔에 등록한 Web 서비스 URL에서만 통하고, 아니면 navermap_authFailure가 불린다.
+async function naverEngine(key) {
+  await loadAsset("script", { src: `${NAVER_MAPS}?ncpKeyId=${encodeURIComponent(key)}` });
+  const N = window.naver?.maps;
+  if (!N?.Map) throw new Error("naver maps not loaded");
+  const ll = (lat, lon) => new N.LatLng(lat, lon);
+  // 네이버 지도는 자기 상자에 px 크기를 인라인으로 박는다. 그 크기가 페이지 배치를 붙잡지 않도록
+  // CSS로 크기가 정해지는 #map 안에 절대 위치 캔버스를 두고 거기에 띄운다.
+  const canvas = el("div", { class: "map-canvas" });
+  $("#map").append(canvas);
+  const map = new N.Map(canvas, {
+    center: ll(36, 127.7), zoom: 7, scrollWheel: false,
+    zoomControl: true, zoomControlOptions: { position: N.Position.TOP_LEFT, style: N.ZoomControlStyle.SMALL },
+  });
+  const groups = { range: [], darts: [] };
+  const add = (g, overlay) => { groups[g].push(overlay); return overlay; };
+  return {
+    kind: "naver",
+    size: () => { const s = map.getSize(); return { x: s.width, y: s.height }; },
+    toPoint: (lat, lon) => map.getProjection().fromCoordToOffset(ll(lat, lon)),
+    fit: ([[s, w], [n, e]], maxZoom = 21) => {
+      map.fitBounds(new N.LatLngBounds(ll(s, w), ll(n, e)), { top: MAP_PAD, right: MAP_PAD, bottom: MAP_PAD, left: MAP_PAD });
+      if (map.getZoom() > maxZoom) map.setZoom(maxZoom, false);
+    },
+    flyTo: (lat, lon, zoom) => map.morph(ll(lat, lon), zoom, { duration: 1800 }),
+    jump: (lat, lon, zoom) => { map.setZoom(zoom, false); map.setCenter(ll(lat, lon)); },
+    resize: () => { const box = $("#map"); map.setSize(new N.Size(box.clientWidth, box.clientHeight)); },
+    clear: (g) => { for (const overlay of groups[g].splice(0)) overlay.setMap(null); },
+    circle: (g, lat, lon, radiusM, { stroke, fill, fillOpacity }) => add(g, new N.Circle({
+      map, center: ll(lat, lon), radius: radiusM, clickable: false,
+      strokeColor: stroke || fill, strokeWeight: stroke ? 2 : 0, strokeOpacity: stroke ? 1 : 0, strokeStyle: "shortdash",
+      fillColor: fill, fillOpacity,
+    })),
+    html: (g, lat, lon, node, [ax, ay], size) => add(g, new N.Marker({
+      map, position: ll(lat, lon), clickable: false,
+      icon: { content: node, anchor: new N.Point(ax, ay), ...(size ? { size: new N.Size(size[0], size[1]) } : {}) },
+    })),
+    destroy: () => { map.destroy(); canvas.remove(); },
+  };
+}
+
+// OpenStreetMap 대체 지도. OSM 프랑스의 Humanitarian(HOT) 타일은 색이 부드럽고 지명이 한글로 나오며 키가 필요 없다.
+async function osmEngine() {
   if (!window.L) {
-    $("#map").textContent = "지도를 불러오지 못했어요. 다트는 그대로 던질 수 있어요.";
-    return;
+    await Promise.all([
+      loadAsset("link", { rel: "stylesheet", href: `${LEAFLET}.css`, crossorigin: "" }),
+      loadAsset("script", { src: `${LEAFLET}.js`, crossorigin: "" }),
+    ]);
   }
-  geo.map = L.map("map", { scrollWheelZoom: false });
-  // OSM 프랑스의 Humanitarian(HOT) 타일: 표준 OSM보다 색이 부드럽고 지명이 한글로 나온다.
-  // 키가 필요 없고, 출처 표시와 적은 사용량이 조건이다. (CARTO·Stadia 등은 이제 API 키를 요구한다)
+  const map = L.map("map", { scrollWheelZoom: false });
   L.tileLayer("https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png", {
     subdomains: "abc",
     maxZoom: 19,
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, Tiles style by <a href="https://www.hotosm.org/">HOT</a>, hosted by <a href="https://openstreetmap.fr/">OSM France</a>',
-  }).addTo(geo.map);
-  new ResizeObserver(() => {
-    geo.map.invalidateSize();
-    if (geo.view && !ui.busy && !ui.landed && !document.body.classList.contains("has-result")) geo.map.fitBounds(geo.view, { padding: [16, 16], maxZoom: 9 });
-  }).observe($("#map"));
-  geo.range = L.layerGroup().addTo(geo.map);
-  geo.darts = L.layerGroup().addTo(geo.map);
-  geo.map.fitBounds([[33.1, 125.6], [38.6, 129.8]]);
+  }).addTo(map);
+  const groups = { range: L.layerGroup().addTo(map), darts: L.layerGroup().addTo(map) };
+  return {
+    kind: "osm",
+    size: () => map.getSize(),
+    toPoint: (lat, lon) => map.latLngToContainerPoint([lat, lon]),
+    fit: (bounds, maxZoom) => map.fitBounds(bounds, { padding: [MAP_PAD, MAP_PAD], maxZoom }),
+    flyTo: (lat, lon, zoom) => map.flyTo([lat, lon], zoom, { duration: 1.8, easeLinearity: 0.2 }),
+    jump: (lat, lon, zoom) => map.setView([lat, lon], zoom),
+    resize: () => map.invalidateSize(),
+    clear: (g) => groups[g].clearLayers(),
+    circle: (g, lat, lon, radiusM, { stroke, fill, fillOpacity }) => L.circle([lat, lon], stroke
+      ? { radius: radiusM, color: stroke, weight: 2, dashArray: "6 7", fillColor: fill, fillOpacity }
+      : { radius: radiusM, stroke: false, fillColor: fill, fillOpacity }).addTo(groups[g]),
+    html: (g, lat, lon, node, anchor, size) => L.marker([lat, lon], {
+      icon: L.divIcon({ className: "", html: node, iconSize: size || null, iconAnchor: anchor }), interactive: false,
+    }).addTo(groups[g]),
+    destroy: () => map.remove(),
+  };
+}
+
+async function initMap(naverKey) {
+  geo.ro = new ResizeObserver(() => {
+    if (!geo.map) return;
+    geo.map.resize();
+    if (geo.view && !ui.busy && !ui.landed && !document.body.classList.contains("has-result")) geo.map.fit(geo.view, 9);
+  });
+  window.navermap_authFailure = () => {
+    geo.naverFailed = true;
+    console.warn("네이버 지도 인증에 실패해 OpenStreetMap 지도로 바꿔요. NAVER_MAP_KEY_ID와 콘솔의 Web 서비스 URL을 확인하세요.");
+    if (geo.map?.kind === "naver") switchToOsm();
+  };
+  let engine = null;
+  if (naverKey) {
+    engine = await naverEngine(naverKey).catch((err) => { console.warn("네이버 지도를 불러오지 못했어요", err); return null; });
+    if (engine && geo.naverFailed) { engine.destroy(); engine = null; freshMapBox(); }
+  }
+  engine ??= await osmEngine().catch(() => null);
+  if (!engine) {
+    $("#map").textContent = "지도를 불러오지 못했어요. 다트는 그대로 던질 수 있어요.";
+    return;
+  }
+  mountMap(engine);
+}
+
+function mountMap(engine) {
+  geo.map = engine;
+  document.body.dataset.map = engine.kind; // 지도 출처 표기와 다크 모드 필터를 엔진에 맞춘다
+  geo.ro.disconnect();
+  geo.ro.observe($("#map"));
+  geo.map.fit(KOREA);
   drawRange();
+  if (ui.landed) showLanding(ui.landed.challenge);
+}
+
+// 네이버 지도가 남긴 스타일·요소가 Leaflet에 섞이지 않게 지도 상자를 새것으로 갈아 끼운다
+function freshMapBox() {
+  const old = $("#map");
+  old.replaceWith(el("div", { class: old.className, id: "map", role: "img", "aria-label": old.getAttribute("aria-label") }));
+  fx.layer = null;
+  stopAiming();
+}
+
+async function switchToOsm() {
+  try { geo.map.destroy(); } catch { /* 이미 망가진 지도 */ }
+  geo.map = null;
+  freshMapBox();
+  const engine = await osmEngine().catch(() => null);
+  if (engine) mountMap(engine);
 }
 
 function drawRange() {
@@ -161,39 +276,37 @@ function drawRange() {
       hi ? `${depName}에서 ${lo}~${hi}km 안의 육지` : `${depName}에서 ${lo}km 이상 떨어진 전국 어디든`),
     el("span", { class: "key" }, el("span", { class: "hole" }), `${lo}km 안은 너무 가까워서 제외`));
   if (!geo.map || !dep) return;
-  geo.range.clearLayers();
-  const center = [dep.lat, dep.lon];
+  geo.map.clear("range");
   const accent = cssVar("--target");
   const ink = cssVar("--ink");
-  let bounds = null;
-  if (hi) {
-    const ring = L.circle(center, { radius: hi * 1000, color: accent, weight: 2, dashArray: "6 7", fillColor: accent, fillOpacity: 0.06 }).addTo(geo.range);
-    bounds = ring.getBounds();
-  }
-  L.circle(center, { radius: lo * 1000, stroke: false, fillColor: ink, fillOpacity: 0.16 }).addTo(geo.range);
-  L.circleMarker(center, { radius: 5, color: ink, weight: 2, fillColor: cssVar("--surface"), fillOpacity: 1 }).addTo(geo.range);
-  const label = el("span", { class: "dep-label", text: `${depName} 출발` });
-  L.marker(center, { icon: L.divIcon({ className: "", html: label, iconSize: null, iconAnchor: [-8, 10] }), interactive: false }).addTo(geo.range);
+  if (hi) geo.map.circle("range", dep.lat, dep.lon, hi * 1000, { stroke: accent, fill: accent, fillOpacity: 0.06 });
+  geo.map.circle("range", dep.lat, dep.lon, lo * 1000, { fill: ink, fillOpacity: 0.16 });
+  geo.map.html("range", dep.lat, dep.lon, el("span", { class: "dep-dot" }), [6, 6], [12, 12]);
+  geo.map.html("range", dep.lat, dep.lon, el("span", { class: "dep-label", text: `${depName} 출발` }), [-8, 10]);
   // 다트는 남한 육지에만 꽂히므로, 화면은 범위 원과 남한이 겹치는 부분에 맞춘다.
-  const view = bounds
-    ? [[Math.max(bounds.getSouth(), 33.1), Math.max(bounds.getWest(), 125.6)],
-       [Math.min(bounds.getNorth(), 38.45), Math.min(bounds.getEast(), 129.8)]]
+  const ring = hi ? circleBounds(dep.lat, dep.lon, hi) : null;
+  const view = ring
+    ? [[Math.max(ring[0][0], 33.1), Math.max(ring[0][1], 125.6)],
+       [Math.min(ring[1][0], 38.45), Math.min(ring[1][1], 129.8)]]
     : [[33.1, 125.6], [38.45, 129.8]];
   geo.view = view;
-  geo.map.fitBounds(view, { padding: [16, 16], maxZoom: 9 });
+  geo.map.fit(view, 9);
+}
+
+// 반지름 km 원을 감싸는 위경도 사각형 [[남, 서], [북, 동]]
+function circleBounds(lat, lon, km) {
+  const dLat = km / 111.32;
+  const dLon = km / (111.32 * Math.cos((lat * Math.PI) / 180));
+  return [[lat - dLat, lon - dLon], [lat + dLat, lon + dLon]];
 }
 
 // 꽂힌 다트와 그 옆 동네 이름표. 아래 카드를 보지 않아도 지도만으로 어디인지 알 수 있게 한다.
 function pinDart(d) {
-  const at = [d.lat, d.lon];
-  L.marker(at, { icon: dartIcon(), interactive: false }).addTo(geo.darts);
+  const dart = el("div", { class: "dart-icon" });
+  dart.innerHTML = dartSvg(true);
+  geo.map.html("darts", d.lat, d.lon, dart, DART_TIP, [DART_PX, DART_PX]);
   if (!d.name) return;
-  const label = el("span", { class: "dart-label", text: d.name });
-  L.marker(at, { icon: L.divIcon({ className: "", html: label, iconSize: null, iconAnchor: [-12, -6] }), interactive: false }).addTo(geo.darts);
-}
-
-function dartIcon() {
-  return L.divIcon({ className: "dart-icon", html: dartSvg(true), iconSize: [DART_PX, DART_PX], iconAnchor: DART_TIP });
+  geo.map.html("darts", d.lat, d.lon, el("span", { class: "dart-label", text: d.name }), [-12, -6]);
 }
 
 // ---- 던지기 연출: 조준 → 비행 → 충돌 ----
@@ -203,7 +316,7 @@ const EASE_OUT = "cubic-bezier(.16, .84, .24, 1)";
 function fxLayer() {
   if (!fx.layer || !fx.layer.isConnected) {
     fx.layer = el("div", { class: "fx-layer" });
-    geo.map.getContainer().append(fx.layer);
+    $("#map").append(fx.layer);
   }
   return fx.layer;
 }
@@ -228,7 +341,7 @@ function startAiming() {
   fxLayer().append(fx.reticle);
   const t0 = performance.now();
   const step = (t) => {
-    const { x: w, y: h } = geo.map.getSize();
+    const { x: w, y: h } = geo.map.size();
     const k = (t - t0) / 1000;
     fx.pos = {
       x: w / 2 + w * 0.3 * Math.sin(k * 1.35) + w * 0.07 * Math.sin(k * 4.3 + 1),
@@ -324,8 +437,8 @@ function flyDart(dartEl, shadow, layer, p, { w, h }) {
   });
 }
 
-async function throwOne(latlng, hit, label) {
-  const p = geo.map.latLngToContainerPoint(latlng);
+async function throwOne(at, hit, label) {
+  const p = geo.map.toPoint(at.lat, at.lon);
   if (fx.reticle) {
     cancelAnimationFrame(fx.raf);
     fx.reticle.classList.remove("locked");
@@ -336,7 +449,7 @@ async function throwOne(latlng, hit, label) {
     fx.reticle.classList.add("locked");
   }
   const layer = fxLayer();
-  const { x: w, y: h } = geo.map.getSize();
+  const { x: w, y: h } = geo.map.size();
   const shadow = place(el("div", { class: "fx-shadow" }), p);
   const dartEl = place(el("div", { class: "fx-dart" }), p);
   dartEl.innerHTML = dartSvg(false);
@@ -392,41 +505,41 @@ async function animateThrow(ch) {
   if (!geo.map) return;
   const id = ++fx.throwId; // 이 던지기가 끝나기 전에 다른 던지기·결과 표시가 시작되면 물러난다
   const stale = () => id !== fx.throwId;
-  geo.darts.clearLayers();
+  geo.map.clear("darts");
   clearFx();
   const d = ch.destination;
-  const target = L.latLng(d.lat, d.lon);
   if (reducedMotion()) {
     stopAiming();
     showLanding(ch);
     return;
   }
-  const view = geo.map.getBounds();
-  const misses = (ch.misses || []).filter((m) => view.contains([m.lat, m.lon])).slice(0, 4);
+  const { x: w, y: h } = geo.map.size();
+  const inView = ({ x, y }) => x >= 0 && y >= 0 && x <= w && y <= h;
+  const misses = (ch.misses || []).filter((m) => inView(geo.map.toPoint(m.lat, m.lon))).slice(0, 4);
   for (const m of misses) {
-    await throwOne(L.latLng(m.lat, m.lon), false, MISS_LABEL[m.reason] || "다시");
+    await throwOne(m, false, MISS_LABEL[m.reason] || "다시");
     if (stale()) return;
   }
-  await throwOne(target, true);
+  await throwOne(d, true);
   if (stale()) return;
   stopAiming();
   await sleep(700);
   if (stale()) return;
   // 화면에 떠 있던 연출용 다트를 모두 걷어 내고, 지도에 붙는 다트 하나만 남긴다
   clearFx();
-  geo.darts.clearLayers();
+  geo.map.clear("darts");
   pinDart(d);
-  geo.map.flyTo(target, 10, { duration: 1.8, easeLinearity: 0.2 });
+  geo.map.flyTo(d.lat, d.lon, 10);
 }
 
 function showLanding(ch) {
   if (!geo.map) return;
   fx.throwId++;
   clearFx();
-  geo.darts.clearLayers();
+  geo.map.clear("darts");
   const d = ch.destination;
   pinDart(d);
-  geo.map.setView([d.lat, d.lon], 10);
+  geo.map.jump(d.lat, d.lon, 10);
 }
 
 function onSegKey(e) {
@@ -464,7 +577,7 @@ function readRequest(exclude) {
 function showStage(on) {
   $("#stage").classList.toggle("hidden", !on);
   document.body.classList.toggle("is-landed", on);
-  geo.map?.invalidateSize();
+  geo.map?.resize();
 }
 
 // 카드에 무엇을 보일지는 상태 하나로 정한다: 던지는 중 → 제안(꽂힌 곳) → 일정 짜는 중. 표시는 CSS가 맡는다.
@@ -499,7 +612,7 @@ async function start(exclude) {
   $("#slot").textContent = "다트를 던지는 중";
   $("#slot").className = "slot";
   $("#slotSub").textContent = "기간에 맞는 거리 안의 육지를 노리고 있어요";
-  if (geo.map) { fx.throwId++; clearFx(); geo.darts.clearLayers(); drawRange(); startAiming(); }
+  if (geo.map) { fx.throwId++; clearFx(); geo.map.clear("darts"); drawRange(); startAiming(); }
   reveal("#mapWrap");
 
   try {
@@ -532,8 +645,8 @@ function showOffer({ id, challenge, weather }) {
   const d = challenge.destination;
   $("#landInfo").replaceChildren(
     el("span", { class: "addr", text: d.full_name, title: `위도 ${d.lat.toFixed(4)}, 경도 ${d.lon.toFixed(4)}` }),
-    el("a", { class: "maplink", href: kakaoMapUrl(d), target: "_blank", rel: "noopener noreferrer" },
-      icon("map"), "카카오맵에서 보기"),
+    el("a", { class: "maplink", href: naverMapUrl(d), target: "_blank", rel: "noopener noreferrer" },
+      icon("map"), "네이버 지도에서 보기"),
     ...(weather || []).map((w) =>
       el("span", { class: "wchip", text: `${w.date.slice(5).replace("-", "/")} ${w.summary} ${Math.round(w.temp_max)}°` })));
   setStage("offer");
@@ -666,7 +779,8 @@ function fillLanding(ch) {
     : `한 번에 육지에 꽂혔어요 · ${ch.departure}에서 직선 ${ch.distance_km}km`;
 }
 
-const kakaoMapUrl = (d) => `https://map.kakao.com/link/map/${encodeURIComponent(d.name)},${d.lat},${d.lon}`;
+// 네이버 지도는 좌표로 핀을 찍는 공식 웹 링크가 없어서, 읍·면·동 전체 주소로 검색해 연다
+const naverMapUrl = (d) => `https://map.naver.com/p/search/${encodeURIComponent(d.full_name || d.name)}`;
 
 // ---------------------------------------------------------------- 결과
 // 공유 링크: 일정이 완성됐으면 일정을, 아직이면 꽂힌 곳과 "일정 짜기" 제안을 보여 준다.
@@ -717,8 +831,8 @@ function renderResult(plan, stats) {
       el("h2", {}, dest.name, el("span", { class: "province", text: dest.province })),
       el("p", { class: "pitch", text: dest.full_name || "" }),
       dest.lat != null
-        ? el("a", { class: "maplink", href: kakaoMapUrl(dest), target: "_blank", rel: "noopener noreferrer" },
-            icon("map"), "카카오맵에서 위치 보기")
+        ? el("a", { class: "maplink", href: naverMapUrl(dest), target: "_blank", rel: "noopener noreferrer" },
+            icon("map"), "네이버 지도에서 위치 보기")
         : null,
     ),
     el("div", {},
@@ -769,7 +883,7 @@ function renderResult(plan, stats) {
   $("#result").replaceChildren(head, notice || "", el("div", { class: "trip-grid" }, main, side));
   $("#result").classList.remove("hidden");
   $("#actionbar").classList.remove("hidden");
-  if (geo.map) setTimeout(() => geo.map.invalidateSize(), 50);
+  if (geo.map) setTimeout(() => geo.map?.resize(), 50);
   $("#result").scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
@@ -873,7 +987,7 @@ function reset() {
   ui.landed = null;
   history.replaceState(null, "", location.pathname);
   document.body.classList.remove("has-result");
-  if (geo.map) { fx.throwId++; clearFx(); geo.darts.clearLayers(); geo.map.invalidateSize(); drawRange(); }
+  if (geo.map) { fx.throwId++; clearFx(); geo.map.clear("darts"); geo.map.resize(); drawRange(); }
   $("#result").classList.add("hidden");
   $("#actionbar").classList.add("hidden");
   showStage(false);

@@ -29,6 +29,13 @@ def test_meta(client):
   assert data["durations"][0]["range_km"] == [20, 130]
 
 
+def test_meta_naver_map_key(client, monkeypatch):
+  monkeypatch.delenv("NAVER_MAP_KEY_ID", raising=False)
+  assert client.get("/api/meta").json()["naver_map_key"] is None
+  monkeypatch.setenv("NAVER_MAP_KEY_ID", "test-key-id")
+  assert client.get("/api/meta").json()["naver_map_key"] == "test-key-id"
+
+
 def test_challenge_stream_and_share_link(client, fake_llm):
   fake_llm.days = 2
   resp = client.post("/api/challenges", json={

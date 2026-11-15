@@ -34,7 +34,7 @@ load_dotenv()
 
 from travel_roulette import agent as travel_agent  # noqa: E402  (.env 로드 이후 import)
 from travel_roulette.config import APP_NAME  # noqa: E402
-from travel_roulette.dart import DEPARTURES, DURATION_LABELS, GeocodeError, range_for  # noqa: E402
+from travel_roulette.dart import DEPARTURES, DURATION_LABELS, GeocodeError, geocoder_name, range_for  # noqa: E402
 from travel_roulette.render import found_items  # noqa: E402
 from travel_roulette.request_parser import BUDGET_LEVELS, TripRequest  # noqa: E402
 
@@ -161,6 +161,11 @@ async def meta() -> dict[str, Any]:
       ],
       "departures": [{"name": d.name, "lat": d.lat, "lon": d.lon} for d in DEPARTURES.values()],
       "budget_levels": list(BUDGET_LEVELS),
+      # 네이버 지도 Client ID: 등록한 도메인에서만 동작하는 공개용 키라 브라우저에 줘도 된다.
+      # 없으면 프론트엔드가 OpenStreetMap 지도로 대신 보여 준다.
+      "naver_map_key": os.getenv("NAVER_MAP_KEY_ID") or None,
+      # 다트 주소 검색에 쓰는 곳 ("naver" 또는 "nominatim"): 화면 아래 출처 표기를 맞춘다
+      "geocoder": geocoder_name(),
   }
 
 
